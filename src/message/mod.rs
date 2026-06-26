@@ -17,7 +17,7 @@ pub enum Recipient {
 pub enum MessageContent {
     Text { text: String },
     Card { card: Value },
-    Raw { msg_type: String, content: Value },
+    Custom { msg_type: String, content: Value },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
