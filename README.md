@@ -34,10 +34,12 @@ use lark_channel::{ChannelConfig, Domain};
 
 ## Roadmap
 
-1. Implement app access-token management.
-2. Add OpenAPI HTTP client primitives.
-3. Add WebSocket event connection and event acknowledgement.
-4. Port message normalization semantics from `channel-sdk-node`.
-5. Add card create/update helpers.
-6. Add media download/upload helpers.
-7. Build a minimal echo bot example.
+See [docs/roadmap.md](docs/roadmap.md) for the development plan.
+
+The next milestones are:
+
+1. App access-token management and OpenAPI HTTP primitives.
+2. Outbound text messaging and reply helpers.
+3. WebSocket event connection and event acknowledgement.
+4. Message normalization aligned with `channel-sdk-node` where practical.
+5. Card, streaming reply, and media helpers.
