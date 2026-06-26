@@ -16,6 +16,18 @@ The first PR establishes the repository and public crate shape:
 
 This PR is intentionally a scaffold. It does not implement network transport, token management, WebSocket handling, message normalization, card helpers, or media transfer yet.
 
+## Milestone 0: Project Foundation
+
+- MIT license and repository initialization
+- Rust crate scaffold and public module layout
+- Initial shared types for config, events, messages, cards, media, and errors
+- Initial `ChannelClient` trait shape
+- README with project status and scope
+- Roadmap for staged development
+- CI for formatting, clippy, and tests
+
+Milestone 0 is complete when the scaffold is reviewable and the repository has enough structure for feature work to proceed through focused follow-up PRs.
+
 ## Milestone 1: OpenAPI Foundation
 
 - App access token request and in-memory cache
