@@ -14,6 +14,12 @@ pub struct EventContext {
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum ChannelEvent {
     Message(NormalizedMessage),
-    CardAction { context: EventContext, action: Value },
-    Unknown { context: Option<EventContext>, raw: Value },
+    CardAction {
+        context: EventContext,
+        action: Value,
+    },
+    Unknown {
+        context: Option<EventContext>,
+        raw: Value,
+    },
 }
