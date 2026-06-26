@@ -2,6 +2,11 @@ name: CI
 
 on:
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
   push:
     branches:
       - main
@@ -10,6 +15,23 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  pr-commit-shape:
+    name: PR commit shape
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Require one commit in the PR branch
+        env:
+          PR_COMMITS: ${{ github.event.pull_request.commits }}
+        run: |
+          echo "PR commit count: ${PR_COMMITS}"
+          if [ "${PR_COMMITS}" != "1" ]; then
+            echo "This project expects PR branches to be squashed to one commit before merge."
+            echo "Please squash or fixup the branch locally, then push with --force-with-lease."
+            exit 1
+          fi
+
   rust:
     name: Rust
     runs-on: ubuntu-latest

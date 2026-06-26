@@ -27,6 +27,27 @@ Use Conventional Commit-style messages:
 
 Keep commits focused. Prefer follow-up commits during draft review over force-pushing away useful history, unless the branch has not been reviewed yet.
 
+Draft PRs may collect multiple review and iteration commits. Before marking a PR ready for review, squash or fix up the branch into one clear commit. The CI workflow checks this shape for non-draft pull requests.
+
+After the branch has one commit, merge the PR with GitHub's **Create a merge commit** option. This keeps `main` history readable while preserving the branch topology in the commit graph.
+
+To clean up a branch before review, either use interactive rebase:
+
+```bash
+git fetch origin
+git rebase -i origin/main
+git push --force-with-lease
+```
+
+Or, when the whole branch should become one commit, recreate it from the current diff:
+
+```bash
+git fetch origin
+git reset --soft origin/main
+git commit -m "feat: describe the change"
+git push --force-with-lease
+```
+
 ## Pull Requests
 
 Open draft PRs for larger work while the shape is still changing. Mark a PR ready for review when:
