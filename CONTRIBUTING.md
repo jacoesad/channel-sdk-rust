@@ -10,6 +10,7 @@ Use short typed branch prefixes:
 - `fix/<name>` for bug fixes
 - `docs/<name>` for documentation-only changes
 - `ci/<name>` for workflow changes
+- `chore/<name>` for project maintenance
 - `refactor/<name>` for behavior-preserving code changes
 - `release/<version>` for release preparation
 
@@ -23,29 +24,27 @@ Use Conventional Commit-style messages:
 - `fix: handle api error payloads`
 - `docs: update roadmap`
 - `ci: add Rust workflow`
+- `chore: prepare release`
 - `refactor: split outbound message types`
 
-Keep commits focused. Prefer follow-up commits during draft review over force-pushing away useful history, unless the branch has not been reviewed yet.
+Keep commits focused. Draft PRs may collect multiple review and iteration commits, especially while the design is still moving.
 
-Draft PRs may collect multiple review and iteration commits. Before marking a PR ready for review, squash or fix up the branch into one clear commit. The CI workflow checks this shape for non-draft pull requests.
+Avoid force-pushing away reviewed commits unless the branch needs a deliberate cleanup and reviewers can easily re-check the changed range.
 
-After the branch has one commit, merge the PR with GitHub's **Create a merge commit** option. This keeps `main` history readable while preserving the branch topology in the commit graph.
+Merge ready PRs with GitHub's **Squash and merge** option. This keeps `main` to one commit per PR while preserving the development commits, review discussion, and iteration history on the PR page.
 
-To clean up a branch before review, either use interactive rebase:
+Use the squash commit title as the final changelog-quality summary, usually matching the PR title:
 
-```bash
-git fetch origin
-git rebase -i origin/main
-git push --force-with-lease
+```text
+feat: add app token client (#12)
 ```
 
-Or, when the whole branch should become one commit, recreate it from the current diff:
+If a PR contains several meaningful development commits, preserve their subjects in the squash commit body:
 
-```bash
-git fetch origin
-git reset --soft origin/main
-git commit -m "feat: describe the change"
-git push --force-with-lease
+```text
+* feat: add token request types
+* feat: implement app token client
+* docs: add app token example
 ```
 
 ## Pull Requests
@@ -65,4 +64,14 @@ PR descriptions should include:
 
 ## Releases
 
-Do not create git tags or publish to crates.io until the crate has a working API surface, examples, tests, and a documented compatibility policy.
+Prepare releases on short `release/<version>` branches cut from the latest `main`.
+
+Release PRs should contain only release preparation changes:
+
+- update `Cargo.toml` version
+- update `CHANGELOG.md` or release notes
+- make small package metadata or README fixes needed for publishing
+
+Release PRs run an additional CI job with `cargo package` and `cargo publish --dry-run`.
+
+After the release PR is merged back to `main`, tag the resulting `main` commit and publish from that commit. Do not tag or publish from the release branch before it is merged.

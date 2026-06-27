@@ -15,23 +15,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  pr-commit-shape:
-    name: PR commit shape
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Require one commit in the PR branch
-        env:
-          PR_COMMITS: ${{ github.event.pull_request.commits }}
-        run: |
-          echo "PR commit count: ${PR_COMMITS}"
-          if [ "${PR_COMMITS}" != "1" ]; then
-            echo "This project expects PR branches to be squashed to one commit before merge."
-            echo "Please squash or fixup the branch locally, then push with --force-with-lease."
-            exit 1
-          fi
-
   rust:
     name: Rust
     runs-on: ubuntu-latest
@@ -56,3 +39,24 @@ jobs:
 
       - name: Run tests
         run: cargo test --all-features
+
+  release-dry-run:
+    name: Release dry run
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'release/')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Package crate
+        run: cargo package
+
+      - name: Publish dry run
+        run: cargo publish --dry-run
