@@ -259,26 +259,21 @@ struct SelfBuiltTokenRequest<'a> {
     app_secret: &'a str,
 }
 
-#[derive(Debug, serde::Deserialize)]
-struct OpenApiStatus {
-    code: i64,
-    #[serde(default, alias = "message")]
-    msg: String,
-}
-
 fn parse_openapi_response<R>(response: HttpResponse) -> Result<R>
 where
     R: DeserializeOwned,
 {
-    let status = serde_json::from_value::<OpenApiStatus>(response.body.clone());
-
-    if let Ok(status) = status
-        && status.code != 0
+    if let Some(code) = response.body.get("code").and_then(Value::as_i64)
+        && code != 0
     {
-        return Err(Error::Api {
-            code: status.code,
-            message: status.msg,
-        });
+        let message = response
+            .body
+            .get("msg")
+            .or_else(|| response.body.get("message"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        return Err(Error::Api { code, message });
     }
 
     if !(200..300).contains(&response.status) {
@@ -293,7 +288,7 @@ where
 
 #[derive(Debug)]
 struct AccessTokenCache {
-    token: Mutex<Option<CachedAppAccessToken>>,
+    token: Mutex<Option<CachedAccessToken>>,
 }
 
 impl Default for AccessTokenCache {
@@ -306,7 +301,10 @@ impl Default for AccessTokenCache {
 
 impl AccessTokenCache {
     fn get(&self, now: Instant) -> Option<String> {
-        let token = self.token.lock().expect("access token cache poisoned");
+        let token = self
+            .token
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let token = token.as_ref()?;
 
         if token.expires_at > now + TOKEN_REFRESH_SKEW {
@@ -317,8 +315,11 @@ impl AccessTokenCache {
     }
 
     fn store(&self, value: String, expire: u64, now: Instant) {
-        let mut token = self.token.lock().expect("access token cache poisoned");
-        *token = Some(CachedAppAccessToken {
+        let mut token = self
+            .token
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *token = Some(CachedAccessToken {
             value,
             expires_at: now + Duration::from_secs(expire),
         });
@@ -326,7 +327,7 @@ impl AccessTokenCache {
 }
 
 #[derive(Debug)]
-struct CachedAppAccessToken {
+struct CachedAccessToken {
     value: String,
     expires_at: Instant,
 }
@@ -509,6 +510,28 @@ mod tests {
             json!({
                 "code": 99991663,
                 "msg": "invalid app secret"
+            }),
+        )]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport);
+
+        let error = block_on(client.app_access_token()).expect_err("api error");
+
+        assert!(matches!(
+            error,
+            Error::Api {
+                code: 99991663,
+                message
+            } if message == "invalid app secret"
+        ));
+    }
+
+    #[test]
+    fn post_openapi_json_accepts_message_alias_for_api_error() {
+        let transport = FakeTransport::new(vec![HttpResponse::json(
+            200,
+            json!({
+                "code": 99991663,
+                "message": "invalid app secret"
             }),
         )]);
         let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport);

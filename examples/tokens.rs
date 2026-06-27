@@ -1,4 +1,5 @@
 use std::env;
+use std::io;
 
 use lark_channel::{ChannelConfig, OpenApiClient, ReqwestOpenApiTransport};
 
@@ -19,6 +20,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn required_env(name: &str) -> Result<String, String> {
-    env::var(name).map_err(|_| format!("missing required environment variable: {name}"))
+fn required_env(name: &str) -> Result<String, io::Error> {
+    env::var(name).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("missing required environment variable: {name}"),
+        )
+    })
 }
