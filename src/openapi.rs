@@ -103,13 +103,22 @@ impl OpenApiTransport for ReqwestOpenApiTransport {
         let client = self.client.clone();
 
         Box::pin(async move {
-            let mut builder = client.request(request.method.into(), request.url);
-            for (name, value) in request.headers {
+            let HttpRequest {
+                method,
+                url,
+                headers,
+                body,
+            } = request;
+
+            let mut builder = client.request(method.into(), url);
+            for (name, value) in headers {
                 builder = builder.header(name, value);
+            }
+            if !body.is_null() {
+                builder = builder.json(&body);
             }
 
             let response = builder
-                .json(&request.body)
                 .send()
                 .await
                 .map_err(|error| Error::Transport(error.to_string()))?;
