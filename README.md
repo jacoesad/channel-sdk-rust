@@ -33,6 +33,20 @@ The package/repository is named `channel-sdk-rust` to match LarkSuite's official
 use lark_channel::{ChannelConfig, Domain};
 ```
 
+## Examples
+
+Examples live in [examples](examples).
+
+The token example verifies the current OpenAPI foundation by requesting app and tenant access tokens:
+
+```bash
+export LARK_APP_ID=cli_xxx
+export LARK_APP_SECRET=xxx
+cargo run --example tokens
+```
+
+The example reads credentials from environment variables. Applications using this SDK may load those values from their own configuration system, secret manager, or local `.env` workflow before constructing `ChannelConfig`.
+
 ## Roadmap
 
 See [docs/roadmap.md](docs/roadmap.md) for the development plan.

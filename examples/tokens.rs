@@ -4,7 +4,10 @@ use lark_channel::{ChannelConfig, OpenApiClient, ReqwestOpenApiTransport};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = ChannelConfig::new(env::var("LARK_APP_ID")?, env::var("LARK_APP_SECRET")?);
+    let config = ChannelConfig::new(
+        required_env("LARK_APP_ID")?,
+        required_env("LARK_APP_SECRET")?,
+    );
     let client = OpenApiClient::new(config, ReqwestOpenApiTransport::new());
 
     let app_token = client.app_access_token().await?;
@@ -14,4 +17,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("tenant access token acquired: {} bytes", tenant_token.len());
 
     Ok(())
+}
+
+fn required_env(name: &str) -> Result<String, String> {
+    env::var(name).map_err(|_| format!("missing required environment variable: {name}"))
 }
