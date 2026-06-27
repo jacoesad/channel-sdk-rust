@@ -71,6 +71,72 @@ pub trait OpenApiTransport: Clone + Send + Sync + 'static {
     fn send_json(&self, request: HttpRequest) -> BoxFuture<'static, Result<HttpResponse>>;
 }
 
+#[cfg(feature = "reqwest-transport")]
+#[derive(Debug, Clone)]
+pub struct ReqwestOpenApiTransport {
+    client: reqwest::Client,
+}
+
+#[cfg(feature = "reqwest-transport")]
+impl ReqwestOpenApiTransport {
+    pub fn new() -> Self {
+        Self {
+            client: reqwest::Client::new(),
+        }
+    }
+
+    pub fn with_client(client: reqwest::Client) -> Self {
+        Self { client }
+    }
+}
+
+#[cfg(feature = "reqwest-transport")]
+impl Default for ReqwestOpenApiTransport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "reqwest-transport")]
+impl OpenApiTransport for ReqwestOpenApiTransport {
+    fn send_json(&self, request: HttpRequest) -> BoxFuture<'static, Result<HttpResponse>> {
+        let client = self.client.clone();
+
+        Box::pin(async move {
+            let mut builder = client.request(request.method.into(), request.url);
+            for (name, value) in request.headers {
+                builder = builder.header(name, value);
+            }
+
+            let response = builder
+                .json(&request.body)
+                .send()
+                .await
+                .map_err(|error| Error::Transport(error.to_string()))?;
+            let status = response.status().as_u16();
+            let body = response
+                .json::<Value>()
+                .await
+                .map_err(|error| Error::Transport(error.to_string()))?;
+
+            Ok(HttpResponse { status, body })
+        })
+    }
+}
+
+#[cfg(feature = "reqwest-transport")]
+impl From<HttpMethod> for reqwest::Method {
+    fn from(method: HttpMethod) -> Self {
+        match method {
+            HttpMethod::Get => reqwest::Method::GET,
+            HttpMethod::Post => reqwest::Method::POST,
+            HttpMethod::Put => reqwest::Method::PUT,
+            HttpMethod::Patch => reqwest::Method::PATCH,
+            HttpMethod::Delete => reqwest::Method::DELETE,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct OpenApiClient<T> {
     config: ChannelConfig,

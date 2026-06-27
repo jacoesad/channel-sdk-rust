@@ -13,7 +13,12 @@ categories = ["api-bindings", "asynchronous"]
 name = "lark_channel"
 path = "src/lib.rs"
 
+[features]
+default = ["reqwest-transport"]
+reqwest-transport = ["dep:reqwest"]
+
 [dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

@@ -18,6 +18,8 @@ pub use config::{ChannelConfig, Domain};
 pub use error::{Error, Result};
 pub use event::{ChannelEvent, EventContext};
 pub use message::{MessageContent, NormalizedMessage};
+#[cfg(feature = "reqwest-transport")]
+pub use openapi::ReqwestOpenApiTransport;
 pub use openapi::{
     AppAccessTokenResponse, HttpMethod, HttpRequest, HttpResponse, OpenApiClient, OpenApiTransport,
     TenantAccessTokenResponse,
