@@ -272,14 +272,16 @@ where
 {
     let status = serde_json::from_value::<OpenApiStatus>(response.body.clone());
 
-    if let Ok(status) = status {
-        if status.code != 0 {
-            return Err(Error::Api {
-                code: status.code,
-                message: status.msg,
-            });
-        }
-    } else if !(200..300).contains(&response.status) {
+    if let Ok(status) = status
+        && status.code != 0
+    {
+        return Err(Error::Api {
+            code: status.code,
+            message: status.msg,
+        });
+    }
+
+    if !(200..300).contains(&response.status) {
         return Err(Error::Transport(format!(
             "http status {} from OpenAPI",
             response.status
@@ -519,6 +521,27 @@ mod tests {
                 code: 99991663,
                 message
             } if message == "invalid app secret"
+        ));
+    }
+
+    #[test]
+    fn post_openapi_json_returns_transport_error_for_non_success_status() {
+        let transport = FakeTransport::new(vec![HttpResponse::json(
+            500,
+            json!({
+                "code": 0,
+                "msg": "ok"
+            }),
+        )]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport);
+
+        let error =
+            block_on(client.post_openapi_json::<_, Value>("/open-apis/example", &json!({})))
+                .expect_err("http status error");
+
+        assert!(matches!(
+            error,
+            Error::Transport(message) if message == "http status 500 from OpenAPI"
         ));
     }
 
