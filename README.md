@@ -13,7 +13,7 @@ The first target is to support agent/bot bridges such as `lark-coding-agent-brid
 
 ## Status
 
-Experimental. The crate currently contains the public module skeleton and shared data types. Network transport and OpenAPI implementations are intentionally left for the next milestone.
+Experimental. The crate currently contains the public module skeleton, shared data types, and an early transport-agnostic OpenAPI foundation for app access-token management.
 
 ## Planned Modules
 
@@ -23,6 +23,7 @@ Experimental. The crate currently contains the public module skeleton and shared
 - `card`: interactive card primitives
 - `media`: resource descriptors and download/upload helpers
 - `client`: async client trait for transport implementations
+- `openapi`: app access-token cache and low-level OpenAPI response handling
 
 ## Suggested Crate Name
 
