@@ -20,6 +20,10 @@ path = "src/lib.rs"
 name = "tokens"
 required-features = ["reqwest-transport"]
 
+[[example]]
+name = "send_text"
+required-features = ["reqwest-transport"]
+
 [features]
 default = ["reqwest-transport"]
 reqwest-transport = ["dep:reqwest"]

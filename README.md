@@ -13,7 +13,7 @@ The first target is to support agent/bot bridges such as `lark-coding-agent-brid
 
 ## Status
 
-Experimental. The crate currently contains the public module skeleton, shared data types, and an early OpenAPI foundation for app and tenant access-token management.
+Experimental. The crate currently contains the public module skeleton, shared data types, an OpenAPI foundation for app and tenant access-token management, and minimal outbound text messaging.
 
 ## Planned Modules
 
@@ -50,6 +50,25 @@ cargo run --example tokens
 ```
 
 The example reads credentials from environment variables. Applications using this SDK may load those values from their own configuration system, secret manager, or local `.env` workflow before constructing `ChannelConfig`.
+
+Minimal text messages can be sent through the OpenAPI client:
+
+```rust
+use lark_channel::{ChannelConfig, OpenApiClient, Recipient, ReqwestOpenApiTransport};
+
+// Inside async application code:
+let app_id = "cli_xxx";
+let app_secret = "app_secret";
+let chat_id = "oc_xxx";
+
+let config = ChannelConfig::new(app_id, app_secret);
+let client = OpenApiClient::new(config, ReqwestOpenApiTransport::new());
+let message_id = client
+    .send_text_message(Recipient::Chat(chat_id.to_owned()), "hello")
+    .await?;
+```
+
+`app_id` and `app_secret` come from the Lark/Feishu developer console. See [docs/outbound-messages.md](docs/outbound-messages.md) for recipient semantics and [examples/README.md](examples/README.md) for runnable example configuration.
 
 ## Roadmap
 
