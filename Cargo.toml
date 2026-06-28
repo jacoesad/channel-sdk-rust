@@ -24,6 +24,10 @@ required-features = ["reqwest-transport"]
 name = "send_text"
 required-features = ["reqwest-transport"]
 
+[[example]]
+name = "reply_text"
+required-features = ["reqwest-transport"]
+
 [features]
 default = ["reqwest-transport"]
 reqwest-transport = ["dep:reqwest"]

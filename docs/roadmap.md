@@ -14,7 +14,7 @@ Milestone 0 established the repository and public crate shape:
 - A `ChannelClient` trait for future transport implementations
 - CI for formatting, clippy, and tests
 
-The project has completed the initial Milestone 1 OpenAPI token foundation and is moving into Milestone 2 with minimal outbound text messaging. It still does not implement WebSocket handling, full message normalization, card helpers, or media transfer yet.
+The project has completed the initial Milestone 1 OpenAPI token foundation and is moving through Milestone 2 with minimal outbound text messaging and replies. It still does not implement WebSocket handling, full message normalization, card helpers, or media transfer yet.
 
 ## Version Policy
 

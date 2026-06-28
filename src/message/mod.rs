@@ -9,7 +9,6 @@ pub struct MessageId(pub String);
 pub enum Recipient {
     Chat(String),
     User(String),
-    OpenMessage(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

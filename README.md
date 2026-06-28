@@ -13,7 +13,7 @@ The first target is to support agent/bot bridges such as `lark-coding-agent-brid
 
 ## Status
 
-Experimental. The crate currently contains the public module skeleton, shared data types, an OpenAPI foundation for app and tenant access-token management, and minimal outbound text messaging.
+Experimental. The crate currently contains the public module skeleton, shared data types, an OpenAPI foundation for app and tenant access-token management, and minimal outbound text messaging and replies.
 
 ## Planned Modules
 
@@ -68,7 +68,7 @@ let message_id = client
     .await?;
 ```
 
-`app_id` and `app_secret` come from the Lark/Feishu developer console. See [docs/outbound-messages.md](docs/outbound-messages.md) for recipient semantics and [examples/README.md](examples/README.md) for runnable example configuration.
+`app_id` and `app_secret` come from the Lark/Feishu developer console. See [docs/outbound-messages.md](docs/outbound-messages.md) for outbound message semantics and [examples/README.md](examples/README.md) for runnable example configuration.
 
 ## Roadmap
 
