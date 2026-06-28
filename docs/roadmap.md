@@ -4,9 +4,9 @@ This document tracks the planned direction for `channel-sdk-rust`, a community R
 
 The near-term goal is not to mirror the full OpenAPI SDK. The first useful target is a Channel SDK foundation for agent and bot bridge workloads: inbound events, normalized messages, outbound replies, card updates, and media helpers.
 
-## Current Draft PR
+## Current Status
 
-The first PR establishes the repository and public crate shape:
+Milestone 0 established the repository and public crate shape:
 
 - Rust crate metadata and library target `lark_channel`
 - Public modules for config, client, event, message, card, media, and errors
@@ -14,7 +14,7 @@ The first PR establishes the repository and public crate shape:
 - A `ChannelClient` trait for future transport implementations
 - CI for formatting, clippy, and tests
 
-This PR is intentionally a scaffold. It does not implement network transport, token management, WebSocket handling, message normalization, card helpers, or media transfer yet.
+The project is now moving through Milestone 1 with an early transport-agnostic OpenAPI module, app and tenant access-token handling, and a default reqwest transport. It still does not implement WebSocket handling, outbound messaging, message normalization, card helpers, or media transfer yet.
 
 ## Milestone 0: Project Foundation
 
@@ -30,10 +30,10 @@ Milestone 0 is complete when the scaffold is reviewable and the repository has e
 
 ## Milestone 1: OpenAPI Foundation
 
-- App access token request and in-memory cache
-- Feishu/Lark domain selection
+- App and tenant access token requests with in-memory cache
+- Feishu/Lark domain selection through safe built-in domains
 - Typed API error parsing
-- Basic HTTP client abstraction
+- Transport-agnostic OpenAPI client abstraction
 - Tests for token refresh and API error handling
 
 ## Milestone 2: Outbound Messaging

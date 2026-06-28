@@ -13,7 +13,16 @@ categories = ["api-bindings", "asynchronous"]
 name = "lark_channel"
 path = "src/lib.rs"
 
+[[example]]
+name = "tokens"
+required-features = ["reqwest-transport"]
+
+[features]
+default = ["reqwest-transport"]
+reqwest-transport = ["dep:reqwest"]
+
 [dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -21,3 +30,4 @@ url = "2"
 
 [dev-dependencies]
 serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
