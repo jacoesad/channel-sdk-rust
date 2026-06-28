@@ -32,12 +32,14 @@ export LARK_APP_ID=cli_xxx
 export LARK_APP_SECRET=xxx
 export LARK_CHAT_ID=oc_xxx
 export LARK_TEXT="hello from lark-channel"
+# Optional idempotency key:
+export LARK_UUID=uuid_xxx
 cargo run --example send_text
 ```
 
 Use `LARK_OPEN_ID=ou_xxx` instead of `LARK_CHAT_ID` to send a direct message to a user by open id. If both are set, `LARK_CHAT_ID` takes priority. See [../docs/outbound-messages.md](../docs/outbound-messages.md) for recipient semantics.
 
-`LARK_TEXT` is optional and defaults to a short greeting. The example prints the returned message id.
+`LARK_TEXT` is optional and defaults to a short greeting. `LARK_UUID` is optional and is sent as the OpenAPI idempotency key when set. The example prints the returned message id.
 
 ## Reply to a message
 
@@ -48,7 +50,10 @@ export LARK_APP_ID=cli_xxx
 export LARK_APP_SECRET=xxx
 export LARK_MESSAGE_ID=om_xxx
 export LARK_TEXT="reply from lark-channel"
+# Optional idempotency and thread placement:
+export LARK_UUID=uuid_xxx
+export LARK_REPLY_IN_THREAD=true
 cargo run --example reply_text
 ```
 
-`LARK_MESSAGE_ID` is the parent message id to reply to. When the parent message belongs to a thread or topic, Lark/Feishu places the reply under that conversation context. `LARK_TEXT` is optional and defaults to a short reply. The example prints the returned message id.
+`LARK_MESSAGE_ID` is the parent message id to reply to. When the parent message belongs to a thread or topic, Lark/Feishu places the reply under that conversation context. `LARK_TEXT` is optional and defaults to a short reply. `LARK_UUID` is optional and is sent as the OpenAPI idempotency key when set. `LARK_REPLY_IN_THREAD` is optional and accepts `true`/`false`. The example prints the returned message id.

@@ -1,4 +1,23 @@
-/target
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs and local state
+*.log
+/tmp/
+
+# Environment files
 .env
 .env.*
 !.env.example

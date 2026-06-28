@@ -51,11 +51,12 @@ Milestone 0 is complete when the scaffold is reviewable and the repository has e
 
 ## Milestone 2: Outbound Messaging
 
-- Send text messages to chats and users
-- Reply to messages and threads
-- Convert simple markdown/text into Feishu/Lark message content
-- Basic retry and idempotency support
-- Example for sending a text message
+- OpenAPI-level helpers for sending text messages to chats and users
+- OpenAPI-level helpers for replying to messages and threads
+- Idempotency options for OpenAPI send and reply calls
+- Managed `MessageSender` with basic retry and automatic idempotency reuse
+- Simple markdown/text conversion into Feishu/Lark message content
+- Runnable examples for sending and replying to messages
 
 ## Milestone 3: Events and WebSocket
 

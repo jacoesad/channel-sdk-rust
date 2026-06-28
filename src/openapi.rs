@@ -225,6 +225,16 @@ where
         recipient: Recipient,
         content: MessageContent,
     ) -> Result<MessageId> {
+        self.send_message_with_options(recipient, content, MessageSendOptions::default())
+            .await
+    }
+
+    pub async fn send_message_with_options(
+        &self,
+        recipient: Recipient,
+        content: MessageContent,
+        options: MessageSendOptions,
+    ) -> Result<MessageId> {
         let recipient = SendMessageRecipient::try_from(recipient)?;
         let content = SendMessageContent::try_from(content)?;
         let path = format!(
@@ -235,6 +245,7 @@ where
             receive_id: recipient.receive_id,
             msg_type: content.msg_type,
             content: serde_json::to_string(&content.content)?,
+            uuid: options.uuid,
         };
         let response: SendMessageResponse = self.post_tenant_json(&path, &request).await?;
 
@@ -246,8 +257,22 @@ where
         recipient: Recipient,
         text: impl Into<String>,
     ) -> Result<MessageId> {
-        self.send_message(recipient, MessageContent::Text { text: text.into() })
+        self.send_text_message_with_options(recipient, text, MessageSendOptions::default())
             .await
+    }
+
+    pub async fn send_text_message_with_options(
+        &self,
+        recipient: Recipient,
+        text: impl Into<String>,
+        options: MessageSendOptions,
+    ) -> Result<MessageId> {
+        self.send_message_with_options(
+            recipient,
+            MessageContent::Text { text: text.into() },
+            options,
+        )
+        .await
     }
 
     pub async fn reply_message(
@@ -255,11 +280,23 @@ where
         parent_message_id: MessageId,
         content: MessageContent,
     ) -> Result<MessageId> {
+        self.reply_message_with_options(parent_message_id, content, MessageReplyOptions::default())
+            .await
+    }
+
+    pub async fn reply_message_with_options(
+        &self,
+        parent_message_id: MessageId,
+        content: MessageContent,
+        options: MessageReplyOptions,
+    ) -> Result<MessageId> {
         let content = SendMessageContent::try_from(content)?;
         let path = format!("{SEND_MESSAGE_PATH}/{}/reply", parent_message_id.0);
         let request = ReplyMessageRequest {
             msg_type: content.msg_type,
             content: serde_json::to_string(&content.content)?,
+            uuid: options.uuid,
+            reply_in_thread: options.reply_in_thread,
         };
         let response: SendMessageResponse = self.post_tenant_json(&path, &request).await?;
 
@@ -271,9 +308,24 @@ where
         parent_message_id: MessageId,
         text: impl Into<String>,
     ) -> Result<MessageId> {
-        self.reply_message(
+        self.reply_text_message_with_options(
+            parent_message_id,
+            text,
+            MessageReplyOptions::default(),
+        )
+        .await
+    }
+
+    pub async fn reply_text_message_with_options(
+        &self,
+        parent_message_id: MessageId,
+        text: impl Into<String>,
+        options: MessageReplyOptions,
+    ) -> Result<MessageId> {
+        self.reply_message_with_options(
             parent_message_id,
             MessageContent::Text { text: text.into() },
+            options,
         )
         .await
     }
@@ -320,6 +372,78 @@ pub struct AppAccessTokenResponse {
 pub struct TenantAccessTokenResponse {
     pub tenant_access_token: String,
     pub expire: u64,
+}
+
+/// Optional parameters for sending a new message.
+///
+/// `uuid` is a caller-provided idempotency key forwarded to Lark/Feishu.
+/// Reuse the same value when retrying the same logical message, and use a
+/// new value when sending different content.
+///
+/// `OpenApiClient` does not generate this value automatically. Higher-level
+/// retry helpers should create one key per logical send and reuse it for all
+/// retry attempts.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MessageSendOptions {
+    /// Request de-duplication key accepted by the Lark/Feishu send-message API.
+    pub uuid: Option<String>,
+}
+
+impl MessageSendOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_uuid(uuid: impl Into<String>) -> Self {
+        Self {
+            uuid: Some(uuid.into()),
+        }
+    }
+
+    pub fn uuid(mut self, uuid: impl Into<String>) -> Self {
+        self.uuid = Some(uuid.into());
+        self
+    }
+}
+
+/// Optional parameters for replying to an existing message.
+///
+/// `uuid` is a caller-provided idempotency key forwarded to Lark/Feishu.
+/// Reuse the same value when retrying the same logical reply, and use a new
+/// value when replying with different content.
+///
+/// `OpenApiClient` does not generate this value automatically. Higher-level
+/// retry helpers should create one key per logical reply and reuse it for all
+/// retry attempts.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MessageReplyOptions {
+    /// Request de-duplication key accepted by the Lark/Feishu reply-message API.
+    pub uuid: Option<String>,
+    /// Request that the reply is placed in a thread when the target chat supports it.
+    pub reply_in_thread: Option<bool>,
+}
+
+impl MessageReplyOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_uuid(uuid: impl Into<String>) -> Self {
+        Self {
+            uuid: Some(uuid.into()),
+            reply_in_thread: None,
+        }
+    }
+
+    pub fn uuid(mut self, uuid: impl Into<String>) -> Self {
+        self.uuid = Some(uuid.into());
+        self
+    }
+
+    pub fn reply_in_thread(mut self, reply_in_thread: bool) -> Self {
+        self.reply_in_thread = Some(reply_in_thread);
+        self
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -380,12 +504,18 @@ struct SendMessageRequest {
     receive_id: String,
     msg_type: String,
     content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    uuid: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 struct ReplyMessageRequest {
     msg_type: String,
     content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    uuid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reply_in_thread: Option<bool>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -744,6 +874,50 @@ mod tests {
     }
 
     #[test]
+    fn send_message_with_options_includes_uuid() {
+        let transport = FakeTransport::new(vec![
+            HttpResponse::json(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "tenant-token-1",
+                    "expire": 7200
+                }),
+            ),
+            HttpResponse::json(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "data": {
+                        "message_id": "om_123"
+                    }
+                }),
+            ),
+        ]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+
+        block_on(client.send_text_message_with_options(
+            Recipient::Chat("oc_123".to_owned()),
+            "hello",
+            MessageSendOptions::with_uuid("uuid-123"),
+        ))
+        .expect("sent message");
+
+        let calls = transport.calls();
+        assert_eq!(
+            calls[1].body,
+            json!({
+                "receive_id": "oc_123",
+                "msg_type": "text",
+                "content": "{\"text\":\"hello\"}",
+                "uuid": "uuid-123"
+            })
+        );
+    }
+
+    #[test]
     fn reply_text_message_posts_tenant_reply() {
         let transport = FakeTransport::new(vec![
             HttpResponse::json(
@@ -790,6 +964,50 @@ mod tests {
             json!({
                 "msg_type": "text",
                 "content": "{\"text\":\"reply from rust\"}"
+            })
+        );
+    }
+
+    #[test]
+    fn reply_message_with_options_includes_uuid_and_thread_flag() {
+        let transport = FakeTransport::new(vec![
+            HttpResponse::json(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "tenant-token-1",
+                    "expire": 7200
+                }),
+            ),
+            HttpResponse::json(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "data": {
+                        "message_id": "om_reply"
+                    }
+                }),
+            ),
+        ]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+
+        block_on(client.reply_text_message_with_options(
+            MessageId("om_parent".to_owned()),
+            "reply from rust",
+            MessageReplyOptions::with_uuid("uuid-reply").reply_in_thread(true),
+        ))
+        .expect("replied to message");
+
+        let calls = transport.calls();
+        assert_eq!(
+            calls[1].body,
+            json!({
+                "msg_type": "text",
+                "content": "{\"text\":\"reply from rust\"}",
+                "uuid": "uuid-reply",
+                "reply_in_thread": true
             })
         );
     }

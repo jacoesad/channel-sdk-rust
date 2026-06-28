@@ -21,6 +21,6 @@ pub use message::{MessageContent, MessageId, NormalizedMessage, Recipient};
 #[cfg(feature = "reqwest-transport")]
 pub use openapi::ReqwestOpenApiTransport;
 pub use openapi::{
-    AppAccessTokenResponse, HttpMethod, HttpRequest, HttpResponse, OpenApiClient, OpenApiTransport,
-    TenantAccessTokenResponse,
+    AppAccessTokenResponse, HttpMethod, HttpRequest, HttpResponse, MessageReplyOptions,
+    MessageSendOptions, OpenApiClient, OpenApiTransport, TenantAccessTokenResponse,
 };
