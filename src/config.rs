@@ -44,5 +44,5 @@ impl Domain {
 }
 
 fn default_source() -> String {
-    "lark-channel".to_owned()
+    env!("CARGO_PKG_NAME").to_owned()
 }
