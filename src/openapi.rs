@@ -9,10 +9,12 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use url::Url;
 
+use crate::message::{MessageContent, MessageId, Recipient};
 use crate::{ChannelConfig, Error, Result};
 
 const APP_ACCESS_TOKEN_PATH: &str = "/open-apis/auth/v3/app_access_token/internal";
 const TENANT_ACCESS_TOKEN_PATH: &str = "/open-apis/auth/v3/tenant_access_token/internal";
+const SEND_MESSAGE_PATH: &str = "/open-apis/im/v1/messages";
 const TOKEN_REFRESH_SKEW: Duration = Duration::from_secs(600);
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -218,6 +220,36 @@ where
         parse_openapi_response(response)
     }
 
+    pub async fn send_message(
+        &self,
+        recipient: Recipient,
+        content: MessageContent,
+    ) -> Result<MessageId> {
+        let recipient = SendMessageRecipient::try_from(recipient)?;
+        let content = SendMessageContent::try_from(content)?;
+        let path = format!(
+            "{}?receive_id_type={}",
+            SEND_MESSAGE_PATH, recipient.receive_id_type
+        );
+        let request = SendMessageRequest {
+            receive_id: recipient.receive_id,
+            msg_type: content.msg_type,
+            content: serde_json::to_string(&content.content)?,
+        };
+        let response: SendMessageResponse = self.post_tenant_json(&path, &request).await?;
+
+        Ok(MessageId(response.data.message_id))
+    }
+
+    pub async fn send_text_message(
+        &self,
+        recipient: Recipient,
+        text: impl Into<String>,
+    ) -> Result<MessageId> {
+        self.send_message(recipient, MessageContent::Text { text: text.into() })
+            .await
+    }
+
     async fn request_app_access_token(&self) -> Result<AppAccessTokenResponse> {
         self.post_openapi_json(
             APP_ACCESS_TOKEN_PATH,
@@ -266,6 +298,73 @@ pub struct TenantAccessTokenResponse {
 struct SelfBuiltTokenRequest<'a> {
     app_id: &'a str,
     app_secret: &'a str,
+}
+
+#[derive(Debug)]
+struct SendMessageRecipient {
+    receive_id_type: &'static str,
+    receive_id: String,
+}
+
+impl TryFrom<Recipient> for SendMessageRecipient {
+    type Error = Error;
+
+    fn try_from(recipient: Recipient) -> Result<Self> {
+        match recipient {
+            Recipient::Chat(receive_id) => Ok(Self {
+                receive_id_type: "chat_id",
+                receive_id,
+            }),
+            Recipient::User(receive_id) => Ok(Self {
+                receive_id_type: "open_id",
+                receive_id,
+            }),
+            Recipient::OpenMessage(_) => Err(Error::Config(
+                "open message recipients require the reply message API".to_owned(),
+            )),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct SendMessageContent {
+    msg_type: String,
+    content: Value,
+}
+
+impl TryFrom<MessageContent> for SendMessageContent {
+    type Error = Error;
+
+    fn try_from(content: MessageContent) -> Result<Self> {
+        match content {
+            MessageContent::Text { text } => Ok(Self {
+                msg_type: "text".to_owned(),
+                content: serde_json::json!({ "text": text }),
+            }),
+            MessageContent::Card { card } => Ok(Self {
+                msg_type: "interactive".to_owned(),
+                content: card,
+            }),
+            MessageContent::Custom { msg_type, content } => Ok(Self { msg_type, content }),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct SendMessageRequest {
+    receive_id: String,
+    msg_type: String,
+    content: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct SendMessageResponse {
+    data: SendMessageData,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct SendMessageData {
+    message_id: String,
 }
 
 fn parse_openapi_response<R>(response: HttpResponse) -> Result<R>
@@ -510,6 +609,124 @@ mod tests {
             calls[1].headers.get("content-type").map(String::as_str),
             Some("application/json")
         );
+    }
+
+    #[test]
+    fn send_text_message_posts_tenant_message() {
+        let transport = FakeTransport::new(vec![
+            HttpResponse::json(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "tenant-token-1",
+                    "expire": 7200
+                }),
+            ),
+            HttpResponse::json(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "data": {
+                        "message_id": "om_123"
+                    }
+                }),
+            ),
+        ]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+
+        let message_id = block_on(
+            client.send_text_message(Recipient::Chat("oc_123".to_owned()), "hello from rust"),
+        )
+        .expect("sent message");
+
+        assert_eq!(message_id, MessageId("om_123".to_owned()));
+
+        let calls = transport.calls();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(
+            calls[1].url.as_str(),
+            "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id"
+        );
+        assert_eq!(
+            calls[1].headers.get("authorization").map(String::as_str),
+            Some("Bearer tenant-token-1")
+        );
+        assert_eq!(
+            calls[1].body,
+            json!({
+                "receive_id": "oc_123",
+                "msg_type": "text",
+                "content": "{\"text\":\"hello from rust\"}"
+            })
+        );
+    }
+
+    #[test]
+    fn send_message_maps_user_recipient_to_open_id() {
+        let transport = FakeTransport::new(vec![
+            HttpResponse::json(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "tenant-token-1",
+                    "expire": 7200
+                }),
+            ),
+            HttpResponse::json(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "data": {
+                        "message_id": "om_123"
+                    }
+                }),
+            ),
+        ]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+
+        block_on(client.send_message(
+            Recipient::User("ou_123".to_owned()),
+            MessageContent::Custom {
+                msg_type: "text".to_owned(),
+                content: json!({ "text": "hello" }),
+            },
+        ))
+        .expect("sent message");
+
+        let calls = transport.calls();
+        assert_eq!(
+            calls[1].url.as_str(),
+            "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id"
+        );
+        assert_eq!(
+            calls[1].body,
+            json!({
+                "receive_id": "ou_123",
+                "msg_type": "text",
+                "content": "{\"text\":\"hello\"}"
+            })
+        );
+    }
+
+    #[test]
+    fn send_message_rejects_open_message_recipient() {
+        let transport = FakeTransport::new(vec![]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+
+        let error = block_on(
+            client.send_text_message(Recipient::OpenMessage("om_123".to_owned()), "reply"),
+        )
+        .expect_err("unsupported recipient");
+
+        assert!(matches!(
+            error,
+            Error::Config(message) if message == "open message recipients require the reply message API"
+        ));
+        assert!(transport.calls().is_empty());
     }
 
     #[test]

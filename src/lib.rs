@@ -17,7 +17,7 @@ pub use client::{ChannelClient, ChannelClientExt};
 pub use config::{ChannelConfig, Domain};
 pub use error::{Error, Result};
 pub use event::{ChannelEvent, EventContext};
-pub use message::{MessageContent, NormalizedMessage};
+pub use message::{MessageContent, MessageId, NormalizedMessage, Recipient};
 #[cfg(feature = "reqwest-transport")]
 pub use openapi::ReqwestOpenApiTransport;
 pub use openapi::{
