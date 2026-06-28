@@ -4,12 +4,14 @@ This document describes the outbound message behavior currently exposed by `lark
 
 ## Current Scope
 
-The SDK currently supports sending text messages through the OpenAPI client:
+The SDK currently provides a text-message helper and a lower-level raw message send entry point:
 
 - `OpenApiClient::send_text_message`
 - `OpenApiClient::send_message`
 - `Recipient::Chat`
 - `Recipient::User`
+
+`send_text_message` is the recommended helper for plain text messages. `send_message` accepts `MessageContent` directly and can send text, raw interactive card JSON, or a custom `msg_type`/`content` payload. The SDK does not yet provide high-level builders or validation for rich message bodies.
 
 Reply APIs, structured mentions, rich content builders, card helpers, media upload, retry options, and idempotency options are planned follow-up work.
 
