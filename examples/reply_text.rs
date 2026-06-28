@@ -42,7 +42,7 @@ fn parse_bool(name: &str, value: &str) -> Result<bool, io::Error> {
         "false" | "0" | "no" => Ok(false),
         _ => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("{name} must be true or false"),
+            format!("{name} must be one of: true, false, 1, 0, yes, no"),
         )),
     }
 }

@@ -7,9 +7,13 @@ This document describes the outbound message behavior currently exposed by `lark
 The SDK currently provides text-message helpers and lower-level raw message entry points:
 
 - `OpenApiClient::send_text_message`
+- `OpenApiClient::send_text_message_with_options`
 - `OpenApiClient::send_message`
+- `OpenApiClient::send_message_with_options`
 - `OpenApiClient::reply_text_message`
+- `OpenApiClient::reply_text_message_with_options`
 - `OpenApiClient::reply_message`
+- `OpenApiClient::reply_message_with_options`
 - `MessageSendOptions`
 - `MessageReplyOptions`
 - `Recipient::Chat`
