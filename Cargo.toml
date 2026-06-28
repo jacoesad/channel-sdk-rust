@@ -1,13 +1,16 @@
 [package]
-name = "channel-sdk-rust"
+name = "lark-channel"
 version = "0.1.0"
 edition = "2024"
-license = "MIT"
+rust-version = "1.86"
+authors = ["jacoesad <jacoesad@126.com>"]
 description = "Lark/Feishu Channel SDK for Rust"
+license = "MIT"
 repository = "https://github.com/jacoesad/channel-sdk-rust"
+documentation = "https://docs.rs/lark-channel"
 readme = "README.md"
 keywords = ["lark", "feishu", "channel", "sdk", "bot"]
-categories = ["api-bindings", "asynchronous"]
+categories = ["api-bindings", "asynchronous", "web-programming::http-client"]
 
 [lib]
 name = "lark_channel"

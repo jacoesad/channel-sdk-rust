@@ -62,6 +62,15 @@ PR descriptions should include:
 - what is intentionally out of scope
 - verification commands, usually `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-features`
 
+## Review Responses
+
+The following practices are recommendations rather than hard requirements. When addressing review feedback, prefer replying in the related review thread so the decision stays close to the original comment.
+
+- If a change fixes the comment, mention the fixing commit when useful, for example `Fixed in abc1234`.
+- If one commit fixes multiple related comments, reply to each relevant thread with the same commit hash and a short note.
+- If the feedback is deferred or intentionally not changed, explain the tradeoff in the thread and resolve it when the decision is clear.
+- Keep fix commits grouped by intent rather than by individual comments.
+
 ## Releases
 
 Prepare releases on short `release/<version>` branches cut from the latest `main`.

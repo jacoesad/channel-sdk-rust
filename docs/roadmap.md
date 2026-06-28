@@ -1,6 +1,6 @@
 # Roadmap
 
-This document tracks the planned direction for `channel-sdk-rust`, a community Rust implementation aligned with the Lark/Feishu Channel SDK family.
+This document tracks the planned direction for `lark-channel`, a community Rust implementation aligned with the Lark/Feishu Channel SDK family.
 
 The near-term goal is not to mirror the full OpenAPI SDK. The first useful target is a Channel SDK foundation for agent and bot bridge workloads: inbound events, normalized messages, outbound replies, card updates, and media helpers.
 
