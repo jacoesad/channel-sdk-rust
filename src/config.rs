@@ -44,5 +44,5 @@ impl Domain {
 }
 
 fn default_source() -> String {
-    "channel-sdk-rust".to_owned()
+    "lark-channel".to_owned()
 }

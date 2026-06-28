@@ -1,4 +1,4 @@
-# channel-sdk-rust
+# lark-channel
 
 Lark/Feishu Channel SDK for Rust.
 
@@ -25,9 +25,13 @@ Experimental. The crate currently contains the public module skeleton, shared da
 - `client`: async client trait for transport implementations
 - `openapi`: access-token cache, low-level OpenAPI response handling, and default reqwest transport
 
-## Suggested Crate Name
+## Crate Name
 
-The package/repository is named `channel-sdk-rust` to match LarkSuite's official SDK naming style. The Rust library target is `lark_channel`, so users can import it as:
+The repository is named `channel-sdk-rust` to match LarkSuite's official SDK naming style. The published Rust crate is `lark-channel`, and the Rust library target is `lark_channel`, so users can import it as:
+
+```toml
+lark-channel = "0.1"
+```
 
 ```rust
 use lark_channel::{ChannelConfig, Domain};
