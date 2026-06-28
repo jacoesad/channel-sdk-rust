@@ -1,7 +1,9 @@
 use std::env;
 use std::io;
 
-use lark_channel::{ChannelConfig, OpenApiClient, Recipient, ReqwestOpenApiTransport};
+use lark_channel::{
+    ChannelConfig, MessageSendOptions, OpenApiClient, Recipient, ReqwestOpenApiTransport,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,11 +15,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let recipient = recipient_from_env()?;
     let text = env::var("LARK_TEXT").unwrap_or_else(|_| "hello from lark-channel".to_owned());
-    let message_id = client.send_text_message(recipient, text).await?;
+    let options = send_options_from_env();
+    let message_id = client
+        .send_text_message_with_options(recipient, text, options)
+        .await?;
 
     println!("message sent: {}", message_id.0);
 
     Ok(())
+}
+
+fn send_options_from_env() -> MessageSendOptions {
+    let mut options = MessageSendOptions::new();
+    if let Ok(uuid) = env::var("LARK_UUID") {
+        options = options.uuid(uuid);
+    }
+    options
 }
 
 fn recipient_from_env() -> Result<Recipient, io::Error> {

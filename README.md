@@ -13,7 +13,7 @@ The first target is to support agent/bot bridges such as `lark-coding-agent-brid
 
 ## Status
 
-Experimental. The crate currently contains the public module skeleton, shared data types, an OpenAPI foundation for app and tenant access-token management, and minimal outbound text messaging and replies.
+Experimental. The crate currently contains the public module skeleton, shared data types, an OpenAPI foundation for app and tenant access-token management, and minimal outbound text messaging, replies, and idempotency options.
 
 ## Planned Modules
 
