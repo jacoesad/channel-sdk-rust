@@ -84,3 +84,18 @@ Release PRs should contain only release preparation changes:
 Release PRs run an additional CI job with `cargo package` and `cargo publish --dry-run`.
 
 After the release PR is merged back to `main`, tag the resulting `main` commit and publish from that commit. Do not tag or publish from the release branch before it is merged.
+
+Current manual release flow:
+
+1. Cut a short `release/<version>` branch from the latest `main`.
+2. Make release-only changes, such as version, metadata, README, or release notes updates.
+3. Open a release PR and wait for CI, including `Release dry run`, to pass.
+4. Merge the release PR back to `main`.
+5. Update local `main` to the merged commit.
+6. Run `cargo publish --dry-run`.
+7. Run `cargo publish`.
+8. Create and push an annotated tag, for example `v0.1.0`.
+9. Create a GitHub Release from that tag.
+10. Delete the release branch when it is no longer useful.
+
+Trusted publishing and tag-triggered release automation may be added later.

@@ -14,7 +14,20 @@ Milestone 0 established the repository and public crate shape:
 - A `ChannelClient` trait for future transport implementations
 - CI for formatting, clippy, and tests
 
-The project is now moving through Milestone 1 with an early transport-agnostic OpenAPI module, app and tenant access-token handling, and a default reqwest transport. It still does not implement WebSocket handling, outbound messaging, message normalization, card helpers, or media transfer yet.
+The project has completed the initial Milestone 1 OpenAPI token foundation and is moving into Milestone 2 with minimal outbound text messaging. It still does not implement WebSocket handling, full message normalization, card helpers, or media transfer yet.
+
+## Version Policy
+
+During the early `0.x` series, releases generally correspond to completed roadmap milestones rather than every merged feature PR:
+
+- `v0.1.0`: Milestone 1, OpenAPI foundation
+- `v0.2.0`: Milestone 2, outbound messaging
+- `v0.3.0`: Milestone 3, events and WebSocket
+- `v0.4.0`: Milestone 4, message normalization
+- `v0.5.0`: Milestone 5, cards and streaming replies
+- `v0.6.0`: Milestone 6, media helpers
+
+Patch versions such as `v0.2.1` are reserved for bug fixes or small follow-up improvements within a completed milestone.
 
 ## Milestone 0: Project Foundation
 
