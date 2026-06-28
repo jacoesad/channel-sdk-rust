@@ -272,17 +272,17 @@ fn parse_openapi_response<R>(response: HttpResponse) -> Result<R>
 where
     R: DeserializeOwned,
 {
-    if let Some(code) = response.body.get("code").and_then(Value::as_i64)
-        && code != 0
-    {
-        let message = response
-            .body
-            .get("msg")
-            .or_else(|| response.body.get("message"))
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_owned();
-        return Err(Error::Api { code, message });
+    if let Some(code) = response.body.get("code").and_then(Value::as_i64) {
+        if code != 0 {
+            let message = response
+                .body
+                .get("msg")
+                .or_else(|| response.body.get("message"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            return Err(Error::Api { code, message });
+        }
     }
 
     if !(200..300).contains(&response.status) {
