@@ -250,6 +250,34 @@ where
             .await
     }
 
+    pub async fn reply_message(
+        &self,
+        parent_message_id: MessageId,
+        content: MessageContent,
+    ) -> Result<MessageId> {
+        let content = SendMessageContent::try_from(content)?;
+        let path = format!("{SEND_MESSAGE_PATH}/{}/reply", parent_message_id.0);
+        let request = ReplyMessageRequest {
+            msg_type: content.msg_type,
+            content: serde_json::to_string(&content.content)?,
+        };
+        let response: SendMessageResponse = self.post_tenant_json(&path, &request).await?;
+
+        Ok(MessageId(response.data.message_id))
+    }
+
+    pub async fn reply_text_message(
+        &self,
+        parent_message_id: MessageId,
+        text: impl Into<String>,
+    ) -> Result<MessageId> {
+        self.reply_message(
+            parent_message_id,
+            MessageContent::Text { text: text.into() },
+        )
+        .await
+    }
+
     async fn request_app_access_token(&self) -> Result<AppAccessTokenResponse> {
         self.post_openapi_json(
             APP_ACCESS_TOKEN_PATH,
@@ -319,9 +347,6 @@ impl TryFrom<Recipient> for SendMessageRecipient {
                 receive_id_type: "open_id",
                 receive_id,
             }),
-            Recipient::OpenMessage(_) => Err(Error::Config(
-                "open message recipients require the reply message API".to_owned(),
-            )),
         }
     }
 }
@@ -353,6 +378,12 @@ impl TryFrom<MessageContent> for SendMessageContent {
 #[derive(Debug, Serialize)]
 struct SendMessageRequest {
     receive_id: String,
+    msg_type: String,
+    content: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ReplyMessageRequest {
     msg_type: String,
     content: String,
 }
@@ -713,20 +744,54 @@ mod tests {
     }
 
     #[test]
-    fn send_message_rejects_open_message_recipient() {
-        let transport = FakeTransport::new(vec![]);
+    fn reply_text_message_posts_tenant_reply() {
+        let transport = FakeTransport::new(vec![
+            HttpResponse::json(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "tenant-token-1",
+                    "expire": 7200
+                }),
+            ),
+            HttpResponse::json(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "data": {
+                        "message_id": "om_reply"
+                    }
+                }),
+            ),
+        ]);
         let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
 
-        let error = block_on(
-            client.send_text_message(Recipient::OpenMessage("om_123".to_owned()), "reply"),
+        let message_id = block_on(
+            client.reply_text_message(MessageId("om_parent".to_owned()), "reply from rust"),
         )
-        .expect_err("unsupported recipient");
+        .expect("replied to message");
 
-        assert!(matches!(
-            error,
-            Error::Config(message) if message == "open message recipients require the reply message API"
-        ));
-        assert!(transport.calls().is_empty());
+        assert_eq!(message_id, MessageId("om_reply".to_owned()));
+
+        let calls = transport.calls();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(
+            calls[1].url.as_str(),
+            "https://open.feishu.cn/open-apis/im/v1/messages/om_parent/reply"
+        );
+        assert_eq!(
+            calls[1].headers.get("authorization").map(String::as_str),
+            Some("Bearer tenant-token-1")
+        );
+        assert_eq!(
+            calls[1].body,
+            json!({
+                "msg_type": "text",
+                "content": "{\"text\":\"reply from rust\"}"
+            })
+        );
     }
 
     #[test]
