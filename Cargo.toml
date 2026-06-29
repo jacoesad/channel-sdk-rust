@@ -28,6 +28,10 @@ required-features = ["reqwest-transport"]
 name = "reply_text"
 required-features = ["reqwest-transport"]
 
+[[example]]
+name = "message_sender"
+required-features = ["reqwest-transport"]
+
 [features]
 default = ["reqwest-transport"]
 reqwest-transport = ["dep:reqwest"]

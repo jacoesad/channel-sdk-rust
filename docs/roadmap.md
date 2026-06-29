@@ -14,7 +14,7 @@ Milestone 0 established the repository and public crate shape:
 - A `ChannelClient` trait for future transport implementations
 - CI for formatting, clippy, and tests
 
-The project has completed the initial Milestone 1 OpenAPI token foundation and is moving through Milestone 2 with minimal outbound text messaging and replies. It still does not implement WebSocket handling, full message normalization, card helpers, or media transfer yet.
+The project has completed the initial Milestone 1 OpenAPI token foundation and is moving through Milestone 2 with outbound text messaging, replies, and the first high-level message sender. It still does not implement WebSocket handling, full message normalization, card helpers, or media transfer yet.
 
 ## Architecture Boundary
 
@@ -22,11 +22,13 @@ The project has completed the initial Milestone 1 OpenAPI token foundation and i
 
 Feishu and Lark share the same OpenAPI-shaped request/response definitions for the resources used here. The selected environment is a `ChannelConfig` concern: `Domain::Feishu` is the default, and `Domain::Lark` switches the base URL to the Lark OpenAPI domain.
 
-Keep `OpenApiClient` low-level and explicit. It should perform one OpenAPI request at a time and expose caller-provided request options. Managed behavior such as retry policy, fallback handling, automatic idempotency-key generation, idempotency reuse across retries, content conversion, and event/message normalization belongs in higher-level Channel modules such as the planned `MessageSender`.
+Keep `OpenApiClient` low-level and explicit. It should perform one OpenAPI request at a time and expose caller-provided request options. Managed behavior such as retry policy, fallback handling, automatic idempotency-key generation, idempotency reuse across retries, content conversion, and event/message normalization belongs in higher-level Channel modules such as `MessageSender`.
 
 The `lark_openapi` module should remain replaceable: it may later be extracted into a standalone `lark-openapi` crate or swapped for an official Rust OpenAPI SDK adapter without rewriting the higher-level Channel workflow.
 
 Low-level OpenAPI types should stay namespaced under `lark_channel::lark_openapi`. The crate root is reserved for the Channel SDK entry points and shared domain types so callers can tell which layer they are using.
+
+The currently implemented OpenAPI surface is tracked in [lark-api.md](lark-api.md).
 
 ## Version Policy
 
@@ -36,7 +38,7 @@ During the early `0.x` series, releases generally correspond to completed roadma
 - `v0.2.0`: Milestone 2, outbound messaging
 - `v0.3.0`: Milestone 3, events and WebSocket
 - `v0.4.0`: Milestone 4, message normalization
-- `v0.5.0`: Milestone 5, cards and streaming replies
+- `v0.5.0`: Milestone 5, rich content, cards, and streaming replies
 - `v0.6.0`: Milestone 6, media helpers
 
 Patch versions such as `v0.2.1` are reserved for bug fixes or small follow-up improvements within a completed milestone.
@@ -67,7 +69,6 @@ Milestone 0 is complete when the scaffold is reviewable and the repository has e
 - OpenAPI-level helpers for replying to messages and threads
 - Idempotency options for OpenAPI send and reply calls
 - Managed `MessageSender` with basic retry and automatic idempotency reuse
-- Simple markdown/text conversion into Feishu/Lark message content
 - Runnable examples for sending and replying to messages
 
 ## Milestone 3: Events and WebSocket
@@ -87,8 +88,10 @@ Milestone 0 is complete when the scaffold is reviewable and the repository has e
 - Add converters for common media/resource messages
 - Align semantics with `channel-sdk-node` where practical
 
-## Milestone 5: Cards and Streaming Replies
+## Milestone 5: Rich Content, Cards, and Streaming Replies
 
+- Simple Markdown/text conversion into Feishu/Lark rich message content
+- Structured mention and link helpers where supported by Lark/Feishu message formats
 - Card creation and update helpers
 - Markdown streaming reply helper
 - Update throttling for long-running agent output

@@ -37,9 +37,27 @@ export LARK_UUID=uuid_xxx
 cargo run --example send_text
 ```
 
-Use `LARK_OPEN_ID=ou_xxx` instead of `LARK_CHAT_ID` to send a direct message to a user by open id. If both are set, `LARK_CHAT_ID` takes priority. See [../docs/outbound-messages.md](../docs/outbound-messages.md) for recipient semantics.
+Use `LARK_OPEN_ID=ou_xxx` instead of `LARK_CHAT_ID` to send a direct message to a user by open id. If both are set, `LARK_CHAT_ID` takes priority. See [../docs/messages.md](../docs/messages.md) for recipient semantics.
 
 `LARK_TEXT` is optional and defaults to a short greeting. `LARK_UUID` is optional and is sent as the OpenAPI idempotency key when set. The example prints the returned message id.
+
+## Send with MessageSender
+
+`message_sender.rs` sends a text message through the high-level `MessageSender`.
+
+```bash
+export LARK_APP_ID=cli_xxx
+export LARK_APP_SECRET=xxx
+export LARK_CHAT_ID=oc_xxx
+export LARK_TEXT="hello from lark-channel"
+export LARK_MAX_ATTEMPTS=3
+export LARK_UUID=uuid_xxx
+cargo run --example message_sender
+```
+
+Use `LARK_OPEN_ID=ou_xxx` instead of `LARK_CHAT_ID` to send a direct message to a user by open id. If both are set, `LARK_CHAT_ID` takes priority.
+
+`MessageSender` generates an idempotency key automatically and reuses it across transport-failure retries. Set `LARK_UUID` to provide a stable upstream key for process restarts or queue replays. `LARK_MAX_ATTEMPTS` is optional and defaults to `3`. The example prints the returned message id.
 
 ## Reply to a message
 

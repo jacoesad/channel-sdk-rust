@@ -16,6 +16,9 @@ pub enum Error {
     #[error("api error {code}: {message}")]
     Api { code: i64, message: String },
 
+    #[error("validation error: {0}")]
+    Validation(String),
+
     #[error("serialization error: {0}")]
     Serde(#[from] serde_json::Error),
 
