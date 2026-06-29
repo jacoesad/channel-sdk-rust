@@ -172,7 +172,7 @@ fn post_tenant_json_adds_bearer_token() {
 }
 
 #[test]
-fn send_text_message_posts_tenant_message() {
+fn create_message_posts_tenant_message() {
     let transport = FakeTransport::new(vec![
         HttpResponse::json(
             200,
@@ -196,9 +196,13 @@ fn send_text_message_posts_tenant_message() {
     ]);
     let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
 
-    let message_id =
-        block_on(client.send_text_message(Recipient::Chat("oc_123".to_owned()), "hello from rust"))
-            .expect("sent message");
+    let message_id = block_on(client.create_message(
+        Recipient::Chat("oc_123".to_owned()),
+        MessageContent::Text {
+            text: "hello from rust".to_owned(),
+        },
+    ))
+    .expect("sent message");
 
     assert_eq!(message_id, MessageId("om_123".to_owned()));
 
@@ -223,7 +227,7 @@ fn send_text_message_posts_tenant_message() {
 }
 
 #[test]
-fn send_message_maps_user_recipient_to_open_id() {
+fn create_message_maps_user_recipient_to_open_id() {
     let transport = FakeTransport::new(vec![
         HttpResponse::json(
             200,
@@ -247,7 +251,7 @@ fn send_message_maps_user_recipient_to_open_id() {
     ]);
     let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
 
-    block_on(client.send_message(
+    block_on(client.create_message(
         Recipient::User("ou_123".to_owned()),
         MessageContent::Custom {
             msg_type: "text".to_owned(),
@@ -272,7 +276,7 @@ fn send_message_maps_user_recipient_to_open_id() {
 }
 
 #[test]
-fn send_message_with_options_includes_uuid() {
+fn create_message_with_options_includes_uuid() {
     let transport = FakeTransport::new(vec![
         HttpResponse::json(
             200,
@@ -296,10 +300,12 @@ fn send_message_with_options_includes_uuid() {
     ]);
     let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
 
-    block_on(client.send_text_message_with_options(
+    block_on(client.create_message_with_options(
         Recipient::Chat("oc_123".to_owned()),
-        "hello",
-        MessageSendOptions::with_uuid("uuid-123"),
+        MessageContent::Text {
+            text: "hello".to_owned(),
+        },
+        MessageCreateOptions::with_uuid("uuid-123"),
     ))
     .expect("sent message");
 
@@ -316,7 +322,7 @@ fn send_message_with_options_includes_uuid() {
 }
 
 #[test]
-fn reply_text_message_posts_tenant_reply() {
+fn reply_message_posts_tenant_reply() {
     let transport = FakeTransport::new(vec![
         HttpResponse::json(
             200,
@@ -340,9 +346,13 @@ fn reply_text_message_posts_tenant_reply() {
     ]);
     let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
 
-    let message_id =
-        block_on(client.reply_text_message(MessageId("om_parent".to_owned()), "reply from rust"))
-            .expect("replied to message");
+    let message_id = block_on(client.reply_message(
+        MessageId("om_parent".to_owned()),
+        MessageContent::Text {
+            text: "reply from rust".to_owned(),
+        },
+    ))
+    .expect("replied to message");
 
     assert_eq!(message_id, MessageId("om_reply".to_owned()));
 
@@ -390,9 +400,11 @@ fn reply_message_with_options_includes_uuid_and_thread_flag() {
     ]);
     let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
 
-    block_on(client.reply_text_message_with_options(
+    block_on(client.reply_message_with_options(
         MessageId("om_parent".to_owned()),
-        "reply from rust",
+        MessageContent::Text {
+            text: "reply from rust".to_owned(),
+        },
         MessageReplyOptions::with_uuid("uuid-reply").reply_in_thread(true),
     ))
     .expect("replied to message");
@@ -454,7 +466,7 @@ fn post_openapi_json_accepts_message_alias_for_api_error() {
 }
 
 #[test]
-fn post_openapi_json_returns_transport_error_for_non_success_status() {
+fn post_openapi_json_returns_http_status_error_for_non_success_status() {
     let transport = FakeTransport::new(vec![HttpResponse::json(
         500,
         json!({
@@ -467,10 +479,7 @@ fn post_openapi_json_returns_transport_error_for_non_success_status() {
     let error = block_on(client.post_openapi_json::<_, Value>("/open-apis/example", &json!({})))
         .expect_err("http status error");
 
-    assert!(matches!(
-        error,
-        Error::Transport(message) if message == "http status 500 from OpenAPI"
-    ));
+    assert!(matches!(error, Error::HttpStatus { status: 500 }));
 }
 
 #[derive(Clone, Debug)]

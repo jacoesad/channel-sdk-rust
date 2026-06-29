@@ -9,6 +9,12 @@ pub(super) fn parse_openapi_response<R>(response: HttpResponse) -> Result<R>
 where
     R: DeserializeOwned,
 {
+    if !(200..300).contains(&response.status) {
+        return Err(Error::HttpStatus {
+            status: response.status,
+        });
+    }
+
     if let Some(code) = response.body.get("code").and_then(Value::as_i64) {
         if code != 0 {
             let message = response
@@ -20,13 +26,6 @@ where
                 .to_owned();
             return Err(Error::Api { code, message });
         }
-    }
-
-    if !(200..300).contains(&response.status) {
-        return Err(Error::Transport(format!(
-            "http status {} from OpenAPI",
-            response.status
-        )));
     }
 
     serde_json::from_value(response.body).map_err(Error::from)

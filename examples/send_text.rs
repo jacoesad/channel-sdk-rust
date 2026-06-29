@@ -1,8 +1,8 @@
 use std::env;
 use std::io;
 
-use lark_channel::lark_openapi::{MessageSendOptions, OpenApiClient, ReqwestOpenApiTransport};
-use lark_channel::{ChannelConfig, Recipient};
+use lark_channel::lark_openapi::{MessageCreateOptions, OpenApiClient, ReqwestOpenApiTransport};
+use lark_channel::{ChannelConfig, MessageContent, Recipient};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -14,9 +14,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let recipient = recipient_from_env()?;
     let text = env::var("LARK_TEXT").unwrap_or_else(|_| "hello from lark-channel".to_owned());
-    let options = send_options_from_env();
+    let options = create_options_from_env();
     let message_id = client
-        .send_text_message_with_options(recipient, text, options)
+        .create_message_with_options(recipient, MessageContent::Text { text }, options)
         .await?;
 
     println!("message sent: {}", message_id.0);
@@ -24,8 +24,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn send_options_from_env() -> MessageSendOptions {
-    let mut options = MessageSendOptions::new();
+fn create_options_from_env() -> MessageCreateOptions {
+    let mut options = MessageCreateOptions::new();
     if let Ok(uuid) = env::var("LARK_UUID") {
         options = options.uuid(uuid);
     }
