@@ -4,7 +4,7 @@ This document describes the outbound message behavior currently exposed by `lark
 
 ## Current Scope
 
-The SDK currently provides text-message helpers and lower-level raw message entry points:
+The SDK currently provides text-message helpers and lower-level raw message entry points under `lark_channel::lark_openapi`:
 
 - `OpenApiClient::send_text_message`
 - `OpenApiClient::send_text_message_with_options`
@@ -40,7 +40,8 @@ Compatibility note: the early `0.1.x` scaffold exposed `Recipient::OpenMessage` 
 ## Minimal Example
 
 ```rust
-use lark_channel::{ChannelConfig, OpenApiClient, Recipient, ReqwestOpenApiTransport};
+use lark_channel::lark_openapi::{OpenApiClient, ReqwestOpenApiTransport};
+use lark_channel::{ChannelConfig, Recipient};
 
 // Inside async application code:
 let config = ChannelConfig::new("cli_xxx", "app_secret");
@@ -72,7 +73,7 @@ let message_id = client
 To provide an idempotency key for send or reply calls, use the corresponding options type:
 
 ```rust
-use lark_channel::MessageSendOptions;
+use lark_channel::lark_openapi::MessageSendOptions;
 
 let message_id = client
     .send_text_message_with_options(
@@ -92,7 +93,7 @@ Future higher-level sender or retry helpers should follow the same idempotency r
 Replies can also request thread placement when supported by the target conversation:
 
 ```rust
-use lark_channel::MessageReplyOptions;
+use lark_channel::lark_openapi::MessageReplyOptions;
 
 let message_id = client
     .reply_text_message_with_options(

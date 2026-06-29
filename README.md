@@ -23,7 +23,7 @@ Experimental. The crate currently contains the public module skeleton, shared da
 - `card`: interactive card primitives
 - `media`: resource descriptors and download/upload helpers
 - `client`: async client trait for transport implementations
-- `openapi`: access-token cache, low-level OpenAPI response handling, and default reqwest transport
+- `lark_openapi`: low-level Feishu/Lark OpenAPI auth, transport, response parsing, and IM message primitives
 
 ## Crate Name
 
@@ -51,10 +51,13 @@ cargo run --example tokens
 
 The example reads credentials from environment variables. Applications using this SDK may load those values from their own configuration system, secret manager, or local `.env` workflow before constructing `ChannelConfig`.
 
+`ChannelConfig` defaults to `Domain::Feishu`, which uses `https://open.feishu.cn`. Use `Domain::Lark` when targeting `https://open.larksuite.com`.
+
 Minimal text messages can be sent through the OpenAPI client:
 
 ```rust
-use lark_channel::{ChannelConfig, OpenApiClient, Recipient, ReqwestOpenApiTransport};
+use lark_channel::lark_openapi::{OpenApiClient, ReqwestOpenApiTransport};
+use lark_channel::{ChannelConfig, Recipient};
 
 // Inside async application code:
 let app_id = "cli_xxx";

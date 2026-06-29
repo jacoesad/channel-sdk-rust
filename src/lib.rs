@@ -9,18 +9,12 @@ pub mod client;
 pub mod config;
 pub mod error;
 pub mod event;
+pub mod lark_openapi;
 pub mod media;
 pub mod message;
-pub mod openapi;
 
 pub use client::{ChannelClient, ChannelClientExt};
 pub use config::{ChannelConfig, Domain};
 pub use error::{Error, Result};
 pub use event::{ChannelEvent, EventContext};
 pub use message::{MessageContent, MessageId, NormalizedMessage, Recipient};
-#[cfg(feature = "reqwest-transport")]
-pub use openapi::ReqwestOpenApiTransport;
-pub use openapi::{
-    AppAccessTokenResponse, HttpMethod, HttpRequest, HttpResponse, MessageReplyOptions,
-    MessageSendOptions, OpenApiClient, OpenApiTransport, TenantAccessTokenResponse,
-};
