@@ -1,9 +1,8 @@
 use std::env;
 use std::io;
 
-use lark_channel::{
-    ChannelConfig, MessageId, MessageReplyOptions, OpenApiClient, ReqwestOpenApiTransport,
-};
+use lark_channel::lark_openapi::{MessageReplyOptions, OpenApiClient, ReqwestOpenApiTransport};
+use lark_channel::{ChannelConfig, MessageId};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

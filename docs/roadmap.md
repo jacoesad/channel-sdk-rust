@@ -9,12 +9,24 @@ The near-term goal is not to mirror the full OpenAPI SDK. The first useful targe
 Milestone 0 established the repository and public crate shape:
 
 - Rust crate metadata and library target `lark_channel`
-- Public modules for config, client, event, message, card, media, and errors
+- Public modules for config, client, event, message, card, media, lark_openapi, and errors
 - Shared data types for normalized messages and channel events
 - A `ChannelClient` trait for future transport implementations
 - CI for formatting, clippy, and tests
 
 The project has completed the initial Milestone 1 OpenAPI token foundation and is moving through Milestone 2 with minimal outbound text messaging and replies. It still does not implement WebSocket handling, full message normalization, card helpers, or media transfer yet.
+
+## Architecture Boundary
+
+`lark-channel` is a Channel SDK, not a full Lark/Feishu OpenAPI SDK. The `lark_openapi` module is a small internal OpenAPI subset for Channel workflows: authentication, transport abstraction, response parsing, and the OpenAPI resources needed by current milestones.
+
+Feishu and Lark share the same OpenAPI-shaped request/response definitions for the resources used here. The selected environment is a `ChannelConfig` concern: `Domain::Feishu` is the default, and `Domain::Lark` switches the base URL to the Lark OpenAPI domain.
+
+Keep `OpenApiClient` low-level and explicit. It should perform one OpenAPI request at a time and expose caller-provided request options. Managed behavior such as retry policy, fallback handling, automatic idempotency-key generation, idempotency reuse across retries, content conversion, and event/message normalization belongs in higher-level Channel modules such as the planned `MessageSender`.
+
+The `lark_openapi` module should remain replaceable: it may later be extracted into a standalone `lark-openapi` crate or swapped for an official Rust OpenAPI SDK adapter without rewriting the higher-level Channel workflow.
+
+Low-level OpenAPI types should stay namespaced under `lark_channel::lark_openapi`. The crate root is reserved for the Channel SDK entry points and shared domain types so callers can tell which layer they are using.
 
 ## Version Policy
 
