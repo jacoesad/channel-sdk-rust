@@ -81,6 +81,6 @@ See [docs/roadmap.md](docs/roadmap.md) for the development plan.
 
 The next milestones are:
 
-1. WebSocket event connection and event acknowledgement.
-2. Message normalization aligned with `channel-sdk-node` where practical.
-3. Card, streaming reply, and media helpers.
+3. WebSocket event connection and event acknowledgement.
+4. Message normalization aligned with `channel-sdk-node` where practical.
+5. Rich content, cards, and streaming reply helpers.
