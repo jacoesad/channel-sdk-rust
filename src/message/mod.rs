@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+mod sender;
+
+pub use sender::{MessageBuilder, MessageReplyBuilder, MessageSender, MessageSenderOptions};
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MessageId(pub String);
 

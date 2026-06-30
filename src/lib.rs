@@ -17,4 +17,7 @@ pub use client::{ChannelClient, ChannelClientExt};
 pub use config::{ChannelConfig, Domain};
 pub use error::{Error, Result};
 pub use event::{ChannelEvent, EventContext};
-pub use message::{MessageContent, MessageId, NormalizedMessage, Recipient};
+pub use message::{
+    MessageBuilder, MessageContent, MessageId, MessageReplyBuilder, MessageSender,
+    MessageSenderOptions, NormalizedMessage, Recipient,
+};

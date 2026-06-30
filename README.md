@@ -19,7 +19,7 @@ Experimental. The crate currently contains the public module skeleton, shared da
 
 - `config`: app id/secret, Feishu/Lark domain selection, SDK source metadata
 - `event`: normalized inbound events
-- `message`: normalized messages and outbound content
+- `message`: normalized messages, outbound content, and high-level message sending
 - `card`: interactive card primitives
 - `media`: resource descriptors and download/upload helpers
 - `client`: async client trait for transport implementations
@@ -53,11 +53,11 @@ The example reads credentials from environment variables. Applications using thi
 
 `ChannelConfig` defaults to `Domain::Feishu`, which uses `https://open.feishu.cn`. Use `Domain::Lark` when targeting `https://open.larksuite.com`.
 
-Minimal text messages can be sent through the OpenAPI client:
+Minimal text messages can be sent through the high-level message sender:
 
 ```rust
 use lark_channel::lark_openapi::{OpenApiClient, ReqwestOpenApiTransport};
-use lark_channel::{ChannelConfig, Recipient};
+use lark_channel::{ChannelConfig, MessageSender, Recipient};
 
 // Inside async application code:
 let app_id = "cli_xxx";
@@ -65,13 +65,15 @@ let app_secret = "app_secret";
 let chat_id = "oc_xxx";
 
 let config = ChannelConfig::new(app_id, app_secret);
-let client = OpenApiClient::new(config, ReqwestOpenApiTransport::new());
-let message_id = client
-    .send_text_message(Recipient::Chat(chat_id.to_owned()), "hello")
+let openapi = OpenApiClient::new(config, ReqwestOpenApiTransport::new());
+let sender = MessageSender::new(openapi);
+let message_id = sender
+    .text_message(Recipient::Chat(chat_id.to_owned()), "hello")
+    .send()
     .await?;
 ```
 
-`app_id` and `app_secret` come from the Lark/Feishu developer console. See [docs/outbound-messages.md](docs/outbound-messages.md) for outbound message semantics and [examples/README.md](examples/README.md) for runnable example configuration.
+`app_id` and `app_secret` come from the Lark/Feishu developer console. See [docs/messages.md](docs/messages.md) for message semantics, [docs/lark-api.md](docs/lark-api.md) for the implemented Lark/Feishu OpenAPI mapping, and [examples/README.md](examples/README.md) for runnable example configuration.
 
 ## Roadmap
 

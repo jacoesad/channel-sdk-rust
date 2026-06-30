@@ -2,7 +2,7 @@ use std::env;
 use std::io;
 
 use lark_channel::lark_openapi::{MessageReplyOptions, OpenApiClient, ReqwestOpenApiTransport};
-use lark_channel::{ChannelConfig, MessageId};
+use lark_channel::{ChannelConfig, MessageContent, MessageId};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let text = env::var("LARK_TEXT").unwrap_or_else(|_| "reply from lark-channel".to_owned());
     let options = reply_options_from_env()?;
     let message_id = client
-        .reply_text_message_with_options(parent_message_id, text, options)
+        .reply_message_with_options(parent_message_id, MessageContent::Text { text }, options)
         .await?;
 
     println!("message replied: {}", message_id.0);

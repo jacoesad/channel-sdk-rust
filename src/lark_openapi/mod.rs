@@ -22,7 +22,7 @@ use serde::de::DeserializeOwned;
 use crate::{ChannelConfig, Result};
 
 pub use auth::{AppAccessTokenResponse, TenantAccessTokenResponse};
-pub use message::{MessageReplyOptions, MessageSendOptions};
+pub use message::{MessageCreateOptions, MessageReplyOptions};
 #[cfg(feature = "reqwest-transport")]
 pub use transport::ReqwestOpenApiTransport;
 pub use transport::{BoxFuture, HttpMethod, HttpRequest, HttpResponse, OpenApiTransport};

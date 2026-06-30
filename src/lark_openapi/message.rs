@@ -6,65 +6,42 @@ use crate::{Error, Result};
 
 use super::{OpenApiClient, OpenApiTransport};
 
-const SEND_MESSAGE_PATH: &str = "/open-apis/im/v1/messages";
+const MESSAGE_PATH: &str = "/open-apis/im/v1/messages";
 
 impl<T> OpenApiClient<T>
 where
     T: OpenApiTransport,
 {
-    pub async fn send_message(
+    pub async fn create_message(
         &self,
         recipient: Recipient,
         content: MessageContent,
     ) -> Result<MessageId> {
-        self.send_message_with_options(recipient, content, MessageSendOptions::default())
+        self.create_message_with_options(recipient, content, MessageCreateOptions::default())
             .await
     }
 
-    pub async fn send_message_with_options(
+    pub async fn create_message_with_options(
         &self,
         recipient: Recipient,
         content: MessageContent,
-        options: MessageSendOptions,
+        options: MessageCreateOptions,
     ) -> Result<MessageId> {
-        let recipient = SendMessageRecipient::try_from(recipient)?;
-        let content = SendMessageContent::try_from(content)?;
+        let recipient = CreateMessageRecipient::try_from(recipient)?;
+        let content = OpenApiMessageContent::try_from(content)?;
         let path = format!(
             "{}?receive_id_type={}",
-            SEND_MESSAGE_PATH, recipient.receive_id_type
+            MESSAGE_PATH, recipient.receive_id_type
         );
-        let request = SendMessageRequest {
+        let request = CreateMessageRequest {
             receive_id: recipient.receive_id,
             msg_type: content.msg_type,
             content: serde_json::to_string(&content.content)?,
             uuid: options.uuid,
         };
-        let response: SendMessageResponse = self.post_tenant_json(&path, &request).await?;
+        let response: MessageResponse = self.post_tenant_json(&path, &request).await?;
 
         Ok(MessageId(response.data.message_id))
-    }
-
-    pub async fn send_text_message(
-        &self,
-        recipient: Recipient,
-        text: impl Into<String>,
-    ) -> Result<MessageId> {
-        self.send_text_message_with_options(recipient, text, MessageSendOptions::default())
-            .await
-    }
-
-    pub async fn send_text_message_with_options(
-        &self,
-        recipient: Recipient,
-        text: impl Into<String>,
-        options: MessageSendOptions,
-    ) -> Result<MessageId> {
-        self.send_message_with_options(
-            recipient,
-            MessageContent::Text { text: text.into() },
-            options,
-        )
-        .await
     }
 
     pub async fn reply_message(
@@ -82,48 +59,21 @@ where
         content: MessageContent,
         options: MessageReplyOptions,
     ) -> Result<MessageId> {
-        let content = SendMessageContent::try_from(content)?;
-        let path = format!("{SEND_MESSAGE_PATH}/{}/reply", parent_message_id.0);
+        let content = OpenApiMessageContent::try_from(content)?;
+        let path = format!("{MESSAGE_PATH}/{}/reply", parent_message_id.0);
         let request = ReplyMessageRequest {
             msg_type: content.msg_type,
             content: serde_json::to_string(&content.content)?,
             uuid: options.uuid,
             reply_in_thread: options.reply_in_thread,
         };
-        let response: SendMessageResponse = self.post_tenant_json(&path, &request).await?;
+        let response: MessageResponse = self.post_tenant_json(&path, &request).await?;
 
         Ok(MessageId(response.data.message_id))
     }
-
-    pub async fn reply_text_message(
-        &self,
-        parent_message_id: MessageId,
-        text: impl Into<String>,
-    ) -> Result<MessageId> {
-        self.reply_text_message_with_options(
-            parent_message_id,
-            text,
-            MessageReplyOptions::default(),
-        )
-        .await
-    }
-
-    pub async fn reply_text_message_with_options(
-        &self,
-        parent_message_id: MessageId,
-        text: impl Into<String>,
-        options: MessageReplyOptions,
-    ) -> Result<MessageId> {
-        self.reply_message_with_options(
-            parent_message_id,
-            MessageContent::Text { text: text.into() },
-            options,
-        )
-        .await
-    }
 }
 
-/// Optional parameters for sending a new message.
+/// Optional parameters for creating a new message.
 ///
 /// `uuid` is a caller-provided idempotency key forwarded to Lark/Feishu.
 /// Reuse the same value when retrying the same logical message, and use a
@@ -133,12 +83,12 @@ where
 /// retry helpers should create one key per logical send and reuse it for all
 /// retry attempts.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct MessageSendOptions {
-    /// Request de-duplication key accepted by the Lark/Feishu send-message API.
+pub struct MessageCreateOptions {
+    /// Request de-duplication key accepted by the Lark/Feishu create-message API.
     pub uuid: Option<String>,
 }
 
-impl MessageSendOptions {
+impl MessageCreateOptions {
     pub fn new() -> Self {
         Self::default()
     }
@@ -196,12 +146,12 @@ impl MessageReplyOptions {
 }
 
 #[derive(Debug)]
-struct SendMessageRecipient {
+struct CreateMessageRecipient {
     receive_id_type: &'static str,
     receive_id: String,
 }
 
-impl TryFrom<Recipient> for SendMessageRecipient {
+impl TryFrom<Recipient> for CreateMessageRecipient {
     type Error = Error;
 
     fn try_from(recipient: Recipient) -> Result<Self> {
@@ -219,12 +169,12 @@ impl TryFrom<Recipient> for SendMessageRecipient {
 }
 
 #[derive(Debug)]
-struct SendMessageContent {
+struct OpenApiMessageContent {
     msg_type: String,
     content: Value,
 }
 
-impl TryFrom<MessageContent> for SendMessageContent {
+impl TryFrom<MessageContent> for OpenApiMessageContent {
     type Error = Error;
 
     fn try_from(content: MessageContent) -> Result<Self> {
@@ -243,7 +193,7 @@ impl TryFrom<MessageContent> for SendMessageContent {
 }
 
 #[derive(Debug, Serialize)]
-struct SendMessageRequest {
+struct CreateMessageRequest {
     receive_id: String,
     msg_type: String,
     content: String,
@@ -262,7 +212,7 @@ struct ReplyMessageRequest {
 }
 
 #[derive(Debug, serde::Deserialize)]
-struct SendMessageResponse {
+struct MessageResponse {
     data: SendMessageData,
 }
 

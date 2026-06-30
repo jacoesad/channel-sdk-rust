@@ -10,8 +10,14 @@ pub enum Error {
     #[error("transport error: {0}")]
     Transport(String),
 
+    #[error("http status {status} from OpenAPI")]
+    HttpStatus { status: u16 },
+
     #[error("api error {code}: {message}")]
     Api { code: i64, message: String },
+
+    #[error("validation error: {0}")]
+    Validation(String),
 
     #[error("serialization error: {0}")]
     Serde(#[from] serde_json::Error),
