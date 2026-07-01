@@ -85,6 +85,8 @@ Release PRs run an additional CI job with `cargo package` and `cargo publish --d
 
 After the release PR is merged back to `main`, tag the resulting `main` commit and publish from that commit. Do not tag or publish from the release branch before it is merged.
 
+Keep annotated tag messages short, for example `Release v0.2.0`. Put release highlights, links, and migration notes in the GitHub Release instead.
+
 Current manual release flow:
 
 1. Cut a short `release/<version>` branch from the latest `main`.
@@ -92,10 +94,11 @@ Current manual release flow:
 3. Open a release PR and wait for CI, including `Release dry run`, to pass.
 4. Merge the release PR back to `main`.
 5. Update local `main` to the merged commit.
-6. Run `cargo publish --dry-run`.
-7. Run `cargo publish`.
-8. Create and push an annotated tag, for example `v0.1.0`.
-9. Create a GitHub Release from that tag.
-10. Delete the release branch when it is no longer useful.
+6. Verify the merged commit with `cargo publish --dry-run`.
+7. Create and push an annotated tag, for example `v0.2.0`.
+8. Run `cargo publish` from the tagged `main` commit.
+9. Confirm the crate version is visible on crates.io.
+10. Create a GitHub Release from that tag.
+11. Delete the release branch when it is no longer useful.
 
 Trusted publishing and tag-triggered release automation may be added later.
