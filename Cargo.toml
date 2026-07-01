@@ -32,15 +32,24 @@ required-features = ["reqwest-transport"]
 name = "message_sender"
 required-features = ["reqwest-transport"]
 
+[[example]]
+name = "ws_connect"
+required-features = ["reqwest-transport", "websocket"]
+
 [features]
 default = ["reqwest-transport"]
 reqwest-transport = ["dep:reqwest"]
+websocket = ["dep:futures-util", "dep:prost", "dep:tokio", "dep:tokio-tungstenite"]
 
 [dependencies]
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"], optional = true }
+prost = { version = "0.13", optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+tokio = { version = "1", features = ["net"], optional = true }
+tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect", "rustls-tls-webpki-roots"], optional = true }
 url = "2"
 
 [dev-dependencies]

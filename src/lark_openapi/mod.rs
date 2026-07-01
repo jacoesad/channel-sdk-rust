@@ -13,6 +13,7 @@ mod auth;
 mod message;
 mod response;
 mod transport;
+mod ws;
 
 use std::sync::Arc;
 
@@ -26,6 +27,12 @@ pub use message::{MessageCreateOptions, MessageReplyOptions};
 #[cfg(feature = "reqwest-transport")]
 pub use transport::ReqwestOpenApiTransport;
 pub use transport::{BoxFuture, HttpMethod, HttpRequest, HttpResponse, OpenApiTransport};
+#[cfg(feature = "websocket")]
+pub use ws::{TokioTungsteniteWebSocketTransport, WebSocketConnection};
+pub use ws::{
+    WebSocketClientConfig, WebSocketEndpoint, WebSocketFrame, WebSocketFrameMethod,
+    WebSocketHeader, WebSocketMessageType,
+};
 
 use auth::AccessTokenCache;
 use response::parse_openapi_response;

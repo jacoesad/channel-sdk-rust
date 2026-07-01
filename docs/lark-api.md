@@ -15,6 +15,7 @@ The selected domain comes from `ChannelConfig`:
 | Tenant Access Token | `POST /open-apis/auth/v3/tenant_access_token/internal` | `OpenApiClient::tenant_access_token` |
 | Create Message | `POST /open-apis/im/v1/messages` | `OpenApiClient::create_message` |
 | Reply Message | `POST /open-apis/im/v1/messages/{message_id}/reply` | `OpenApiClient::reply_message` |
+| WebSocket Endpoint | `POST /callback/ws/endpoint` | `OpenApiClient::websocket_endpoint` |
 
 Official docs:
 
@@ -22,6 +23,20 @@ Official docs:
 - [Tenant Access Token](https://open.feishu.cn/document/server-docs/authentication-management/access-token/tenant_access_token_internal.md)
 - [Create Message](https://open.feishu.cn/document/server-docs/im-v1/message/create.md)
 - [Reply Message](https://open.feishu.cn/document/server-docs/im-v1/message/reply.md)
+- [Use long connections to receive events](https://open.feishu.cn/document/server-docs/event-subscription-guide/event-subscription-configure-/request-url-configuration-case.md)
+
+## WebSocket Endpoint Mapping
+
+`OpenApiClient::websocket_endpoint` maps to the long-connection endpoint used by the official SDK family:
+
+- request path: `POST /callback/ws/endpoint`
+- request body: `AppID` and `AppSecret`
+- response `data.URL` becomes `WebSocketEndpoint::url`
+- response `data.ClientConfig` becomes `WebSocketClientConfig`
+
+The endpoint URL is validated as `ws` or `wss` and must include the `device_id` and `service_id` query fields used by the long-connection protocol.
+
+With the optional `websocket` feature enabled, `TokioTungsteniteWebSocketTransport` can connect to the endpoint and read/write raw `WebSocketFrame` values. Event acknowledgement, reconnect policy, and event normalization are intentionally left to the higher-level Channel event layer.
 
 ## Message Mapping
 
@@ -61,4 +76,5 @@ The current subset intentionally does not expose:
 - `receive_id_type=union_id`, `user_id`, or `email`
 - user-token based message create/reply
 - full response message models beyond `data.message_id`
+- event acknowledgement, reconnect policy, and normalized WebSocket events
 - a complete Lark/Feishu OpenAPI surface
