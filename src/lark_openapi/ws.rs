@@ -342,9 +342,13 @@ fn parse_websocket_url(url: &Url) -> Result<(String, i32)> {
     }
     let device_id = query_value(url, DEVICE_ID_QUERY)
         .ok_or_else(|| Error::Validation("websocket endpoint is missing device_id".to_owned()))?;
-    let service_id = query_value(url, SERVICE_ID_QUERY)
-        .and_then(|value| value.parse::<i32>().ok())
+    let service_id_value = query_value(url, SERVICE_ID_QUERY)
         .ok_or_else(|| Error::Validation("websocket endpoint is missing service_id".to_owned()))?;
+    let service_id = service_id_value.parse::<i32>().map_err(|_| {
+        Error::Validation(format!(
+            "websocket endpoint service_id must be an integer, got {service_id_value}"
+        ))
+    })?;
     Ok((device_id, service_id))
 }
 
@@ -421,6 +425,18 @@ mod tests {
         let error = WebSocketEndpoint::new(url, None).expect_err("missing service id");
 
         assert!(matches!(error, Error::Validation(message) if message.contains("service_id")));
+    }
+
+    #[test]
+    fn websocket_endpoint_rejects_invalid_service_id() {
+        let url =
+            Url::parse("wss://example.test/callback?device_id=device&service_id=abc").expect("url");
+
+        let error = WebSocketEndpoint::new(url, None).expect_err("invalid service id");
+
+        assert!(
+            matches!(error, Error::Validation(message) if message.contains("must be an integer"))
+        );
     }
 
     #[test]
