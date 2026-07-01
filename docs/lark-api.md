@@ -36,7 +36,24 @@ Official docs:
 
 The endpoint URL is validated as `ws` or `wss` and must include the `device_id` and `service_id` query fields used by the long-connection protocol.
 
-With the optional `websocket` feature enabled, `TokioTungsteniteWebSocketTransport` can connect to the endpoint and read/write raw `WebSocketFrame` values. Event acknowledgement, reconnect policy, and event normalization are intentionally left to the higher-level Channel event layer.
+With the optional `websocket` feature enabled, `TokioTungsteniteWebSocketTransport` can connect to the endpoint and read/write raw `WebSocketFrame` values.
+
+Event data frames can be parsed with `WebSocketFrame::event` or received with `WebSocketConnection::next_event`. The event envelope exposes the protocol headers needed by the official long-connection flow:
+
+- `message_id`
+- `trace_id`
+- `sum`
+- `seq`
+- raw payload bytes
+
+`WebSocketFrame::event_ack_frame` and `WebSocketConnection::ack_event` build and send the ACK frame for a handled event. The ACK payload follows the official SDK shape:
+
+- success: `{"code":200}`
+- failure: `{"code":500}`
+- optional `data` is a caller-provided base64 string
+- optional `biz_rt` is sent as the `biz_rt` frame header
+
+Packet reassembly for `sum > 1`, automatic dispatch, reconnect policy, and timer-driven heartbeat are intentionally left to the higher-level Channel event layer.
 
 ## Message Mapping
 
@@ -76,5 +93,6 @@ The current subset intentionally does not expose:
 - `receive_id_type=union_id`, `user_id`, or `email`
 - user-token based message create/reply
 - full response message models beyond `data.message_id`
-- event acknowledgement, reconnect policy, and normalized WebSocket events
+- packet reassembly for long-connection events split across multiple frames
+- automatic event dispatch, reconnect policy, and timer-driven heartbeat
 - a complete Lark/Feishu OpenAPI surface

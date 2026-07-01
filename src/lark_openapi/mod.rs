@@ -30,8 +30,8 @@ pub use transport::{BoxFuture, HttpMethod, HttpRequest, HttpResponse, OpenApiTra
 #[cfg(feature = "websocket")]
 pub use ws::{TokioTungsteniteWebSocketTransport, WebSocketConnection};
 pub use ws::{
-    WebSocketClientConfig, WebSocketEndpoint, WebSocketFrame, WebSocketFrameMethod,
-    WebSocketHeader, WebSocketMessageType,
+    WebSocketClientConfig, WebSocketEndpoint, WebSocketEvent, WebSocketEventAck, WebSocketFrame,
+    WebSocketFrameMethod, WebSocketHeader, WebSocketMessageType,
 };
 
 use auth::AccessTokenCache;
