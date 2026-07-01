@@ -75,3 +75,21 @@ cargo run --example reply_text
 ```
 
 `LARK_MESSAGE_ID` is the parent message id to reply to. When the parent message belongs to a thread or topic, Lark/Feishu places the reply under that conversation context. `LARK_TEXT` is optional and defaults to a short reply. `LARK_UUID` is optional and is sent as the OpenAPI idempotency key when set. `LARK_REPLY_IN_THREAD` is optional and accepts `true`/`false`. The example prints the returned message id.
+
+## WebSocket endpoint and connection
+
+`ws_connect.rs` requests the long-connection WebSocket endpoint. By default it prints redacted endpoint metadata only. Set `LARK_WS_CONNECT=1` to open the WebSocket connection and close it immediately.
+
+```bash
+export LARK_APP_ID=cli_xxx
+export LARK_APP_SECRET=xxx
+cargo run --example ws_connect --features websocket
+
+# Optional real connection smoke test:
+export LARK_WS_CONNECT=1
+cargo run --example ws_connect --features websocket
+```
+
+The real connection mode consumes one long-connection slot while it is connected. Lark/Feishu currently limits each app to 50 long connections.
+
+The endpoint URL can include transient connection material, so the example does not print the full query string.

@@ -13,7 +13,7 @@ The first target is to support agent/bot bridges such as `lark-coding-agent-brid
 
 ## Status
 
-Experimental. The crate currently contains the public module skeleton, shared data types, an OpenAPI foundation for app and tenant access-token management, and minimal outbound text messaging, replies, and idempotency options.
+Experimental. The crate currently contains the public module skeleton, shared data types, an OpenAPI foundation for app and tenant access-token management, minimal outbound text messaging, replies, idempotency options, and an early WebSocket endpoint/connection foundation.
 
 ## Planned Modules
 
@@ -23,7 +23,7 @@ Experimental. The crate currently contains the public module skeleton, shared da
 - `card`: interactive card primitives
 - `media`: resource descriptors and download/upload helpers
 - `client`: async client trait for transport implementations
-- `lark_openapi`: low-level Feishu/Lark OpenAPI auth, transport, response parsing, and IM message primitives
+- `lark_openapi`: low-level Feishu/Lark OpenAPI auth, transport, response parsing, IM message primitives, and WebSocket endpoint discovery
 
 ## Crate Name
 
