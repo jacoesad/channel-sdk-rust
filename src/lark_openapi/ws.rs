@@ -251,12 +251,11 @@ impl WebSocketFrame {
     }
 
     pub fn event_ack_frame(&self, ack: WebSocketEventAck) -> Result<Self> {
-        self.event()?.ok_or_else(|| {
-            Error::Validation("websocket ack can only be built for event data frames".to_owned())
-        })?;
+        self.ensure_ackable_event_frame()?;
 
         let mut frame = self.clone();
         if let Some(biz_rt) = ack.biz_rt {
+            frame.headers.retain(|header| header.key != HEADER_BIZ_RT);
             frame
                 .headers
                 .push(WebSocketHeader::new(HEADER_BIZ_RT, biz_rt.to_string()));
@@ -269,6 +268,27 @@ impl WebSocketFrame {
         self.header(key).ok_or_else(|| {
             Error::Validation(format!("websocket event frame is missing {key} header"))
         })
+    }
+
+    fn ensure_ackable_event_frame(&self) -> Result<()> {
+        if self.method() != Some(WebSocketFrameMethod::Data)
+            || self.message_type() != WebSocketMessageType::Event
+        {
+            return Err(Error::Validation(
+                "websocket ack can only be built for event data frames".to_owned(),
+            ));
+        }
+
+        self.required_header(HEADER_MESSAGE_ID)?;
+        self.required_header(HEADER_TRACE_ID)?;
+        parse_required_header::<u32>(self, HEADER_SUM)?;
+        parse_required_header::<u32>(self, HEADER_SEQ)?;
+        if self.payload.is_none() {
+            return Err(Error::Validation(
+                "websocket event frame is missing payload".to_owned(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -721,6 +741,26 @@ mod tests {
             serde_json::from_slice::<Value>(ack_frame.payload.as_deref().expect("payload"))
                 .expect("ack json"),
             json!({"code": 200})
+        );
+    }
+
+    #[test]
+    fn websocket_event_ack_frame_replaces_existing_biz_rt_header() {
+        let mut frame = event_frame();
+        frame.headers.push(WebSocketHeader::new("biz_rt", "999"));
+
+        let ack_frame = frame
+            .event_ack_frame(WebSocketEventAck::ok().with_biz_rt(12))
+            .expect("ack frame");
+
+        assert_eq!(ack_frame.header("biz_rt"), Some("12"));
+        assert_eq!(
+            ack_frame
+                .headers
+                .iter()
+                .filter(|header| header.key == "biz_rt")
+                .count(),
+            1
         );
     }
 
