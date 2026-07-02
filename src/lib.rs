@@ -16,8 +16,9 @@ pub mod message;
 pub use client::{ChannelClient, ChannelClientExt};
 pub use config::{ChannelConfig, Domain};
 pub use error::{Error, Result};
-pub use event::{ChannelEvent, EventContext};
+pub use event::{ChannelEvent, EventContext, parse_lark_event_payload};
 pub use message::{
-    MessageBuilder, MessageContent, MessageId, MessageReplyBuilder, MessageSender,
-    MessageSenderOptions, NormalizedMessage, Recipient,
+    MessageBuilder, MessageChatType, MessageContent, MessageId, MessageMention,
+    MessageReplyBuilder, MessageSender, MessageSenderInfo, MessageSenderOptions, MessageSenderType,
+    NormalizedMessage, Recipient,
 };
