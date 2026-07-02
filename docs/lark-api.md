@@ -38,7 +38,7 @@ The endpoint URL is validated as `ws` or `wss` and must include the `device_id` 
 
 With the optional `websocket` feature enabled, `TokioTungsteniteWebSocketTransport` can connect to the endpoint and read/write raw `WebSocketFrame` values.
 
-Event data frames can be parsed with `WebSocketFrame::event` or received with `WebSocketConnection::next_event`. The event envelope exposes the protocol headers needed by the official long-connection flow:
+Event data frames can be parsed with `WebSocketFrame::event` or received with `WebSocketConnection::next_event`. `next_event` moves the payload bytes into `WebSocketEvent` and returns a lightweight `WebSocketEventFrame` for ACK metadata, so callers do not need to keep a second copy of large event payloads. The event envelope exposes the protocol headers needed by the official long-connection flow:
 
 - `message_id`
 - `trace_id`
@@ -46,7 +46,7 @@ Event data frames can be parsed with `WebSocketFrame::event` or received with `W
 - `seq`
 - raw payload bytes
 
-`WebSocketFrame::event_ack_frame` and `WebSocketConnection::ack_event` build and send the ACK frame for a handled event. The ACK payload follows the official SDK shape:
+`WebSocketFrame::event_ack_frame`, `WebSocketEventFrame::event_ack_frame`, and `WebSocketConnection::ack_event` build and send the ACK frame for a handled event. The ACK payload follows the official SDK shape:
 
 - success: `{"code":200}`
 - failure: `{"code":500}`

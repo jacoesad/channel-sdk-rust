@@ -250,9 +250,94 @@ impl WebSocketFrame {
         }))
     }
 
+    pub fn into_event(self) -> Result<Option<(WebSocketEventFrame, WebSocketEvent)>> {
+        if self.method() != Some(WebSocketFrameMethod::Data)
+            || self.message_type() != WebSocketMessageType::Event
+        {
+            return Ok(None);
+        }
+
+        let message_id = self.required_header(HEADER_MESSAGE_ID)?.to_owned();
+        let trace_id = self.required_header(HEADER_TRACE_ID)?.to_owned();
+        let sum = parse_required_u32_header(&self, HEADER_SUM)?;
+        let seq = parse_required_u32_header(&self, HEADER_SEQ)?;
+
+        let Self {
+            seq_id,
+            log_id,
+            service,
+            method,
+            headers,
+            payload_encoding,
+            payload_type,
+            payload,
+            log_id_new,
+        } = self;
+        let payload = payload.ok_or_else(|| {
+            Error::Validation("websocket event frame is missing payload".to_owned())
+        })?;
+
+        let frame = WebSocketEventFrame {
+            seq_id,
+            log_id,
+            service,
+            method,
+            headers,
+            payload_encoding: payload_encoding.clone(),
+            payload_type: payload_type.clone(),
+            log_id_new: log_id_new.clone(),
+        };
+        let event = WebSocketEvent {
+            message_id,
+            trace_id,
+            sum,
+            seq,
+            payload,
+            payload_encoding,
+            payload_type,
+            log_id_new,
+        };
+
+        Ok(Some((frame, event)))
+    }
+
     pub fn event_ack_frame(&self, ack: WebSocketEventAck) -> Result<Self> {
         self.ensure_ackable_event_frame()?;
+        let frame = WebSocketEventFrame::from_validated_websocket_frame(self);
+        frame.event_ack_frame(ack)
+    }
 
+    fn required_header(&self, key: &str) -> Result<&str> {
+        self.header(key).ok_or_else(|| {
+            Error::Validation(format!("websocket event frame is missing {key} header"))
+        })
+    }
+
+    fn ensure_ackable_event_frame(&self) -> Result<()> {
+        WebSocketEventFrame::validate_websocket_frame(self)?;
+        if self.payload.is_none() {
+            return Err(Error::Validation(
+                "websocket event frame is missing payload".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub struct WebSocketEventFrame {
+    seq_id: u64,
+    log_id: u64,
+    service: i32,
+    method: i32,
+    headers: Vec<WebSocketHeader>,
+    payload_encoding: Option<String>,
+    payload_type: Option<String>,
+    log_id_new: Option<String>,
+}
+
+impl WebSocketEventFrame {
+    pub fn event_ack_frame(&self, ack: WebSocketEventAck) -> Result<WebSocketFrame> {
         let mut headers: Vec<_> = self
             .headers
             .iter()
@@ -263,7 +348,7 @@ impl WebSocketFrame {
             headers.push(WebSocketHeader::new(HEADER_BIZ_RT, biz_rt.to_string()));
         }
 
-        Ok(Self {
+        Ok(WebSocketFrame {
             seq_id: self.seq_id,
             log_id: self.log_id,
             service: self.service,
@@ -276,30 +361,32 @@ impl WebSocketFrame {
         })
     }
 
-    fn required_header(&self, key: &str) -> Result<&str> {
-        self.header(key).ok_or_else(|| {
-            Error::Validation(format!("websocket event frame is missing {key} header"))
-        })
+    fn from_validated_websocket_frame(frame: &WebSocketFrame) -> Self {
+        Self {
+            seq_id: frame.seq_id,
+            log_id: frame.log_id,
+            service: frame.service,
+            method: frame.method,
+            headers: frame.headers.clone(),
+            payload_encoding: frame.payload_encoding.clone(),
+            payload_type: frame.payload_type.clone(),
+            log_id_new: frame.log_id_new.clone(),
+        }
     }
 
-    fn ensure_ackable_event_frame(&self) -> Result<()> {
-        if self.method() != Some(WebSocketFrameMethod::Data)
-            || self.message_type() != WebSocketMessageType::Event
+    fn validate_websocket_frame(frame: &WebSocketFrame) -> Result<()> {
+        if frame.method() != Some(WebSocketFrameMethod::Data)
+            || frame.message_type() != WebSocketMessageType::Event
         {
             return Err(Error::Validation(
                 "websocket ack can only be built for event data frames".to_owned(),
             ));
         }
 
-        self.required_header(HEADER_MESSAGE_ID)?;
-        self.required_header(HEADER_TRACE_ID)?;
-        parse_required_u32_header(self, HEADER_SUM)?;
-        parse_required_u32_header(self, HEADER_SEQ)?;
-        if self.payload.is_none() {
-            return Err(Error::Validation(
-                "websocket event frame is missing payload".to_owned(),
-            ));
-        }
+        frame.required_header(HEADER_MESSAGE_ID)?;
+        frame.required_header(HEADER_TRACE_ID)?;
+        parse_required_u32_header(frame, HEADER_SUM)?;
+        parse_required_u32_header(frame, HEADER_SEQ)?;
         Ok(())
     }
 }
@@ -500,10 +587,10 @@ impl WebSocketConnection {
         Ok(None)
     }
 
-    pub async fn next_event(&mut self) -> Result<Option<(WebSocketFrame, WebSocketEvent)>> {
+    pub async fn next_event(&mut self) -> Result<Option<(WebSocketEventFrame, WebSocketEvent)>> {
         while let Some(frame) = self.next_frame().await? {
-            if let Some(event) = frame.event()? {
-                return Ok(Some((frame, event)));
+            if let Some(event) = frame.into_event()? {
+                return Ok(Some(event));
             }
         }
         Ok(None)
@@ -521,7 +608,7 @@ impl WebSocketConnection {
 
     pub async fn ack_event(
         &mut self,
-        frame: &WebSocketFrame,
+        frame: &WebSocketEventFrame,
         ack: WebSocketEventAck,
     ) -> Result<()> {
         let ack_frame = frame.event_ack_frame(ack)?;
@@ -699,6 +786,29 @@ mod tests {
         assert_eq!(event.payload_type(), Some("application/json"));
         assert_eq!(event.payload_encoding(), None);
         assert_eq!(event.log_id_new(), Some("log-new"));
+    }
+
+    #[test]
+    fn websocket_frame_into_event_moves_payload_to_event_frame() {
+        let frame = event_frame();
+
+        let (event_frame, event) = frame.into_event().expect("event result").expect("event");
+        let ack_frame = event_frame
+            .event_ack_frame(WebSocketEventAck::ok())
+            .expect("ack frame");
+
+        assert_eq!(event.payload(), br#"{"schema":"2.0"}"#);
+        assert_eq!(ack_frame.seq_id, 1);
+        assert_eq!(ack_frame.log_id, 2);
+        assert_eq!(ack_frame.service, 42);
+        assert_eq!(ack_frame.method, WebSocketFrameMethod::Data as i32);
+        assert_eq!(ack_frame.header("type"), Some("event"));
+        assert_eq!(
+            serde_json::from_slice::<Value>(ack_frame.payload.as_deref().expect("payload"))
+                .expect("ack json"),
+            json!({"code": 200})
+        );
+        assert_ne!(ack_frame.payload.as_deref(), Some(event.payload()));
     }
 
     #[test]

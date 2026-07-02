@@ -99,4 +99,4 @@ The real connection modes consume one long-connection slot while connected. Lark
 
 The endpoint URL can include transient connection material, so the example does not print the full query string.
 
-The library also exposes low-level event helpers behind the `websocket` feature. Use `WebSocketConnection::next_event` to receive an event data frame and `WebSocketConnection::ack_event` to acknowledge it after your handler finishes. Packet reassembly, automatic dispatch, heartbeat scheduling, and reconnect policy are intentionally left for later Channel event-layer work.
+The library also exposes low-level event helpers behind the `websocket` feature. Use `WebSocketConnection::next_event` to receive an event data frame and `WebSocketConnection::ack_event` to acknowledge it after your handler finishes. `next_event` returns the event payload separately from the lightweight ACK frame metadata, avoiding a second copy of large event payloads. Packet reassembly, automatic dispatch, heartbeat scheduling, and reconnect policy are intentionally left for later Channel event-layer work.
