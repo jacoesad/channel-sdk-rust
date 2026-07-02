@@ -1,10 +1,11 @@
 use std::env;
 use std::error::Error;
 use std::io;
+use std::time::Instant;
 
 use lark_channel::ChannelConfig;
 use lark_channel::lark_openapi::{
-    OpenApiClient, ReqwestOpenApiTransport, TokioTungsteniteWebSocketTransport,
+    OpenApiClient, ReqwestOpenApiTransport, TokioTungsteniteWebSocketTransport, WebSocketEventAck,
 };
 
 #[tokio::main]
@@ -26,12 +27,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     if env::var("LARK_WS_CONNECT").ok().as_deref() == Some("1") {
         let transport = TokioTungsteniteWebSocketTransport::new();
-        let connection = transport.connect(&endpoint).await?;
+        let mut connection = transport.connect(&endpoint).await?;
         println!(
             "websocket connected: device_id={:?}, service_id={:?}",
             connection.device_id(),
             connection.service_id()
         );
+        if env::var("LARK_WS_RECEIVE_ONCE").ok().as_deref() == Some("1") {
+            println!("waiting for one websocket event");
+            if let Some((frame, event)) = connection.next_event().await? {
+                let started = Instant::now();
+                println!(
+                    "websocket event received: message_id={:?}, trace_id={:?}, payload_len={}",
+                    event.message_id(),
+                    event.trace_id(),
+                    event.payload().len()
+                );
+                let biz_rt = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                connection
+                    .ack_event(&frame, WebSocketEventAck::ok().with_biz_rt(biz_rt))
+                    .await?;
+                println!("websocket event acknowledged");
+            }
+        }
         connection.close().await?;
         println!("websocket closed");
     }

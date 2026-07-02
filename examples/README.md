@@ -78,7 +78,7 @@ cargo run --example reply_text
 
 ## WebSocket endpoint and connection
 
-`ws_connect.rs` requests the long-connection WebSocket endpoint. By default it prints redacted endpoint metadata only. Set `LARK_WS_CONNECT=1` to open the WebSocket connection and close it immediately.
+`ws_connect.rs` requests the long-connection WebSocket endpoint. By default it prints redacted endpoint metadata only. Set `LARK_WS_CONNECT=1` to open the WebSocket connection and close it immediately. Add `LARK_WS_RECEIVE_ONCE=1` to wait for one event frame, print event metadata, send an ACK, and close.
 
 ```bash
 export LARK_APP_ID=cli_xxx
@@ -88,8 +88,15 @@ cargo run --example ws_connect --features websocket
 # Optional real connection smoke test:
 export LARK_WS_CONNECT=1
 cargo run --example ws_connect --features websocket
+
+# Optional receive-and-ack smoke test:
+export LARK_WS_CONNECT=1
+export LARK_WS_RECEIVE_ONCE=1
+cargo run --example ws_connect --features websocket
 ```
 
-The real connection mode consumes one long-connection slot while it is connected. Lark/Feishu currently limits each app to 50 long connections.
+The real connection modes consume one long-connection slot while connected. Lark/Feishu currently limits each app to 50 long connections.
 
 The endpoint URL can include transient connection material, so the example does not print the full query string.
+
+The library also exposes low-level event helpers behind the `websocket` feature. Use `WebSocketConnection::next_event` to receive an event data frame and `WebSocketConnection::ack_event` to acknowledge it after your handler finishes. `next_event` returns the event payload separately from the lightweight ACK frame metadata, avoiding a second copy of large event payloads. Packet reassembly, automatic dispatch, heartbeat scheduling, and reconnect policy are intentionally left for later Channel event-layer work.
