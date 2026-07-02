@@ -232,8 +232,8 @@ impl WebSocketFrame {
 
         let message_id = self.required_header(HEADER_MESSAGE_ID)?.to_owned();
         let trace_id = self.required_header(HEADER_TRACE_ID)?.to_owned();
-        let sum = parse_required_header::<u32>(self, HEADER_SUM)?;
-        let seq = parse_required_header::<u32>(self, HEADER_SEQ)?;
+        let sum = parse_required_u32_header(self, HEADER_SUM)?;
+        let seq = parse_required_u32_header(self, HEADER_SEQ)?;
         let payload = self.payload.clone().ok_or_else(|| {
             Error::Validation("websocket event frame is missing payload".to_owned())
         })?;
@@ -253,15 +253,27 @@ impl WebSocketFrame {
     pub fn event_ack_frame(&self, ack: WebSocketEventAck) -> Result<Self> {
         self.ensure_ackable_event_frame()?;
 
-        let mut frame = self.clone();
+        let mut headers: Vec<_> = self
+            .headers
+            .iter()
+            .filter(|header| header.key != HEADER_BIZ_RT)
+            .cloned()
+            .collect();
         if let Some(biz_rt) = ack.biz_rt {
-            frame.headers.retain(|header| header.key != HEADER_BIZ_RT);
-            frame
-                .headers
-                .push(WebSocketHeader::new(HEADER_BIZ_RT, biz_rt.to_string()));
+            headers.push(WebSocketHeader::new(HEADER_BIZ_RT, biz_rt.to_string()));
         }
-        frame.payload = Some(serde_json::to_vec(&ack.payload())?);
-        Ok(frame)
+
+        Ok(Self {
+            seq_id: self.seq_id,
+            log_id: self.log_id,
+            service: self.service,
+            method: self.method,
+            headers,
+            payload_encoding: self.payload_encoding.clone(),
+            payload_type: self.payload_type.clone(),
+            payload: Some(serde_json::to_vec(&ack.payload())?),
+            log_id_new: self.log_id_new.clone(),
+        })
     }
 
     fn required_header(&self, key: &str) -> Result<&str> {
@@ -281,8 +293,8 @@ impl WebSocketFrame {
 
         self.required_header(HEADER_MESSAGE_ID)?;
         self.required_header(HEADER_TRACE_ID)?;
-        parse_required_header::<u32>(self, HEADER_SUM)?;
-        parse_required_header::<u32>(self, HEADER_SEQ)?;
+        parse_required_u32_header(self, HEADER_SUM)?;
+        parse_required_u32_header(self, HEADER_SEQ)?;
         if self.payload.is_none() {
             return Err(Error::Validation(
                 "websocket event frame is missing payload".to_owned(),
@@ -551,14 +563,11 @@ fn parse_websocket_url(url: &Url) -> Result<(String, i32)> {
     Ok((device_id, service_id))
 }
 
-fn parse_required_header<T>(frame: &WebSocketFrame, key: &str) -> Result<T>
-where
-    T: std::str::FromStr,
-{
+fn parse_required_u32_header(frame: &WebSocketFrame, key: &str) -> Result<u32> {
     let value = frame.required_header(key)?;
-    value.parse::<T>().map_err(|_| {
+    value.parse::<u32>().map_err(|_| {
         Error::Validation(format!(
-            "websocket event frame header {key} must be an integer, got {value}"
+            "websocket event frame header {key} must be an unsigned integer, got {value}"
         ))
     })
 }
@@ -762,6 +771,18 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn websocket_event_ack_frame_does_not_echo_existing_biz_rt_header() {
+        let mut frame = event_frame();
+        frame.headers.push(WebSocketHeader::new("biz_rt", "999"));
+
+        let ack_frame = frame
+            .event_ack_frame(WebSocketEventAck::ok())
+            .expect("ack frame");
+
+        assert_eq!(ack_frame.header("biz_rt"), None);
     }
 
     #[test]
