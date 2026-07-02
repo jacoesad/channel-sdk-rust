@@ -76,8 +76,8 @@ pub struct NormalizedMessage {
 
 impl NormalizedMessage {
     pub fn mentions_bot(&self, bot_open_id: &str) -> bool {
-        self.mentions.iter().any(|mention| {
-            mention.mentioned_type == MessageSenderType::Bot && mention.open_id == bot_open_id
-        })
+        self.mentions
+            .iter()
+            .any(|mention| mention.open_id == bot_open_id)
     }
 }

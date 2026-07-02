@@ -103,7 +103,11 @@ impl LarkMessageReceiveEvent {
                 key: mention.key,
                 open_id: mention.id.open_id,
                 name: mention.name,
-                mentioned_type: parse_sender_type(&mention.mentioned_type),
+                mentioned_type: mention
+                    .mentioned_type
+                    .as_deref()
+                    .map(parse_sender_type)
+                    .unwrap_or(MessageSenderType::Unknown),
             })
             .collect();
 
@@ -156,7 +160,8 @@ struct LarkEventMention {
     id: LarkUserId,
     #[serde(default)]
     name: Option<String>,
-    mentioned_type: String,
+    #[serde(default)]
+    mentioned_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -228,7 +233,6 @@ mod tests {
                         "id": {
                             "open_id": "ou_bot"
                         },
-                        "mentioned_type": "bot",
                         "name": "Bot"
                     }]
                 }
@@ -251,6 +255,10 @@ mod tests {
         assert_eq!(message.parent_id.as_deref(), Some("om_parent"));
         assert_eq!(message.thread_id.as_deref(), Some("omt_1"));
         assert_eq!(message.mentions.len(), 1);
+        assert_eq!(
+            message.mentions[0].mentioned_type,
+            MessageSenderType::Unknown
+        );
         assert!(message.mentions_bot("ou_bot"));
     }
 

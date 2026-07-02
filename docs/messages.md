@@ -24,7 +24,7 @@ Inbound `im.message.receive_v1` event payloads can be parsed with `parse_lark_ev
 - sender open id and sender type
 - message type and plain text content for text events
 - root, parent, and thread ids when present
-- structured mentions with mention key, open id, name, and mentioned type
+- structured mentions with mention key, open id, name, and mentioned type when provided
 - the raw event payload for unsupported or richer follow-up parsing
 
 Use `NormalizedMessage::mentions_bot(bot_open_id)` to decide whether a group message explicitly mentions the current bot. Full rich content, media messages, and advanced mention rendering remain later normalization work.
