@@ -3,10 +3,10 @@ use std::error::Error;
 use std::io;
 use std::time::Instant;
 
-use lark_channel::ChannelConfig;
 use lark_channel::lark_openapi::{
     OpenApiClient, ReqwestOpenApiTransport, TokioTungsteniteWebSocketTransport, WebSocketEventAck,
 };
+use lark_channel::{ChannelConfig, ChannelEvent};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -43,6 +43,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     event.trace_id(),
                     event.payload().len()
                 );
+                match ChannelEvent::parse_lark_payload(event.payload())? {
+                    ChannelEvent::Message(message) => {
+                        println!(
+                            "message event parsed: chat_id={}, chat_type={:?}, sender={}, text={:?}, mentions={}",
+                            message.chat_id,
+                            message.chat_type,
+                            message.sender.open_id,
+                            message.text,
+                            message.mentions.len()
+                        );
+                    }
+                    ChannelEvent::Unknown { context, .. } => {
+                        println!("event parsed as unknown: context={context:?}");
+                    }
+                    ChannelEvent::CardAction { context, .. } => {
+                        println!("card action event parsed: context={context:?}");
+                    }
+                }
                 let biz_rt = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
                 connection
                     .ack_event(&frame, WebSocketEventAck::ok().with_biz_rt(biz_rt))
