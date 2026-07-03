@@ -66,15 +66,22 @@ where
         let Some((frame, event)) = self.connection.next_websocket_event().await? else {
             return Ok(None);
         };
-        match ReceivedEvent::from_websocket_event(frame.clone(), event) {
-            Ok(event) => Ok(Some(event)),
-            Err(error) => {
-                self.connection
-                    .ack_websocket_event(&frame, WebSocketEventAck::internal_server_error())
-                    .await?;
-                Err(error)
-            }
-        }
+        let channel_event = match parse_channel_event_or_ack_parse_error(
+            &mut self.connection,
+            &frame,
+            &event,
+            WebSocketEventAck::internal_server_error(),
+        )
+        .await
+        {
+            Ok(event) => event,
+            Err(error) => return Err(error),
+        };
+        Ok(Some(ReceivedEvent::from_parsed_websocket_event(
+            frame,
+            event,
+            channel_event,
+        )))
     }
 
     pub async fn ack_event(&mut self, event: &ReceivedEvent, ack: WebSocketEventAck) -> Result<()> {
@@ -91,15 +98,14 @@ where
         };
 
         let started = Instant::now();
-        let event = match ReceivedEvent::from_websocket_event(frame.clone(), event) {
-            Ok(event) => event,
-            Err(error) => {
-                let ack =
-                    WebSocketEventAck::internal_server_error().with_biz_rt(elapsed_millis(started));
-                self.connection.ack_websocket_event(&frame, ack).await?;
-                return Err(error);
-            }
-        };
+        let channel_event = parse_channel_event_or_ack_parse_error(
+            &mut self.connection,
+            &frame,
+            &event,
+            WebSocketEventAck::internal_server_error().with_biz_rt(elapsed_millis(started)),
+        )
+        .await?;
+        let event = ReceivedEvent::from_parsed_websocket_event(frame.clone(), event, channel_event);
         let ack = handler(event).await?;
         let ack = if ack.biz_rt().is_none() {
             ack.with_biz_rt(elapsed_millis(started))
@@ -108,6 +114,26 @@ where
         };
         self.connection.ack_websocket_event(&frame, ack).await?;
         Ok(true)
+    }
+}
+
+async fn parse_channel_event_or_ack_parse_error<C>(
+    connection: &mut C,
+    frame: &WebSocketEventFrame,
+    event: &WebSocketEvent,
+    parse_error_ack: WebSocketEventAck,
+) -> Result<ChannelEvent>
+where
+    C: EventConnection,
+{
+    match ChannelEvent::parse_lark_payload(event.payload()) {
+        Ok(channel_event) => Ok(channel_event),
+        Err(error) => {
+            connection
+                .ack_websocket_event(frame, parse_error_ack)
+                .await?;
+            Err(error)
+        }
     }
 }
 
@@ -143,9 +169,12 @@ impl fmt::Debug for ReceivedEvent {
 }
 
 impl ReceivedEvent {
-    fn from_websocket_event(frame: WebSocketEventFrame, event: WebSocketEvent) -> Result<Self> {
-        let channel_event = ChannelEvent::parse_lark_payload(event.payload())?;
-        Ok(Self {
+    fn from_parsed_websocket_event(
+        frame: WebSocketEventFrame,
+        event: WebSocketEvent,
+        channel_event: ChannelEvent,
+    ) -> Self {
+        Self {
             frame,
             event: channel_event,
             message_id: event.message_id().to_owned(),
@@ -156,7 +185,7 @@ impl ReceivedEvent {
             payload_encoding: event.payload_encoding().map(str::to_owned),
             payload_type: event.payload_type().map(str::to_owned),
             log_id_new: event.log_id_new().map(str::to_owned),
-        })
+        }
     }
 }
 
