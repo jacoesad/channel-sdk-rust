@@ -8,9 +8,16 @@ use crate::{Error, Result};
 
 #[cfg(feature = "websocket")]
 mod consumer;
+#[cfg(feature = "websocket")]
+mod r#loop;
 
 #[cfg(feature = "websocket")]
 pub use consumer::{EventConnection, EventConsumer, ReceivedEvent};
+#[cfg(feature = "websocket")]
+pub use r#loop::{
+    EventLoop, EventLoopExit, EventLoopOptions, EventStreamConnector,
+    OpenApiWebSocketEventConnector, WebSocketEndpointConnector,
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EventContext {

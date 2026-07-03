@@ -55,7 +55,9 @@ Event data frames can be parsed with `WebSocketFrame::event` or received with `W
 - optional `data` is a caller-provided base64 string
 - optional `biz_rt` is sent as the `biz_rt` frame header
 
-The higher-level `EventConsumer` wraps a single `WebSocketConnection` and combines receive, Lark event parsing, handler execution, and ACK sending. `handle_next_event` adds a `biz_rt` ACK header when the handler returns an ACK without one. If event parsing fails after a WebSocket event frame has been received, `EventConsumer` attempts to send an internal-server-error ACK before returning. Handler errors are not ACKed so the platform can retry delivery. Packet reassembly for `sum > 1`, reconnect policy, and timer-driven heartbeat remain later Channel event-layer work.
+The higher-level `EventConsumer` wraps a single `WebSocketConnection` and combines receive, Lark event parsing, handler execution, and ACK sending. `handle_next_event` adds a `biz_rt` ACK header when the handler returns an ACK without one. If event parsing fails after a WebSocket event frame has been received, `EventConsumer` attempts to send an internal-server-error ACK before returning. Handler errors are not ACKed so the platform can retry delivery.
+
+`EventLoop` uses the same receive, parse, handler, and ACK semantics with an `EventStreamConnector` to keep consuming events across clean closes and transport errors. The built-in `OpenApiWebSocketEventConnector` requests a fresh WebSocket endpoint before each connection attempt. If the reconnect limit is reached after clean closes, the loop returns `EventLoopExit::ReconnectLimitReached`; if the final retryable failure is a transport error, the loop returns that error. WebSocket ping frames are answered by `WebSocketConnection`; packet reassembly for `sum > 1` and timer-driven application heartbeat remain later Channel event-layer work.
 
 ## Message Mapping
 
@@ -96,5 +98,5 @@ The current subset intentionally does not expose:
 - user-token based message create/reply
 - full response message models beyond `data.message_id`
 - packet reassembly for long-connection events split across multiple frames
-- automatic event dispatch, reconnect policy, and timer-driven heartbeat
+- automatic event dispatch and timer-driven heartbeat
 - a complete Lark/Feishu OpenAPI surface

@@ -115,7 +115,7 @@ where
     }
 }
 
-async fn parse_channel_event_or_ack_parse_error<C>(
+pub(super) async fn parse_channel_event_or_ack_parse_error<C>(
     connection: &mut C,
     frame: &WebSocketEventFrame,
     event: &WebSocketEvent,
@@ -167,7 +167,7 @@ impl fmt::Debug for ReceivedEvent {
 }
 
 impl ReceivedEvent {
-    fn from_parsed_websocket_event(
+    pub(super) fn from_parsed_websocket_event(
         frame: WebSocketEventFrame,
         event: WebSocketEvent,
         channel_event: ChannelEvent,

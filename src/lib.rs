@@ -18,7 +18,11 @@ pub use config::{ChannelConfig, Domain};
 pub use error::{Error, Result};
 pub use event::{ChannelEvent, EventContext, parse_lark_event_payload};
 #[cfg(feature = "websocket")]
-pub use event::{EventConnection, EventConsumer, ReceivedEvent};
+pub use event::{
+    EventConnection, EventConsumer, EventLoop, EventLoopExit, EventLoopOptions,
+    EventStreamConnector, OpenApiWebSocketEventConnector, ReceivedEvent,
+    WebSocketEndpointConnector,
+};
 pub use message::{
     MessageBuilder, MessageChatType, MessageContent, MessageId, MessageMention,
     MessageReplyBuilder, MessageSender, MessageSenderInfo, MessageSenderOptions, MessageSenderType,
