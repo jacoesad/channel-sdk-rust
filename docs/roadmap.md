@@ -14,7 +14,7 @@ Milestone 0 established the repository and public crate shape:
 - A `ChannelClient` trait for future transport implementations
 - CI for formatting, clippy, and tests
 
-The project has completed Milestone 2 with outbound text messaging, replies, idempotency options, and the first high-level message sender. Milestone 3 has started with WebSocket endpoint discovery, a raw connection foundation, event frame parsing, and explicit event acknowledgement. It still does not implement reconnect policy, timer-driven heartbeat, full message normalization, card helpers, or media transfer yet.
+The project has completed Milestone 2 with outbound text messaging, replies, idempotency options, and the first high-level message sender. Milestone 3 has started with WebSocket endpoint discovery, a raw connection foundation, event frame parsing, explicit event acknowledgement, inbound message parsing, and a single-connection event consumer. It still does not implement reconnect policy, timer-driven heartbeat, full message normalization, card helpers, or media transfer yet.
 
 ## Architecture Boundary
 
@@ -76,6 +76,7 @@ Milestone 0 is complete when the scaffold is reviewable and the repository has e
 - WebSocket connection lifecycle
 - Event acknowledgement
 - Message receive events
+- Single-connection event consumer for receive, parse, handler, and ACK
 - Card action events
 - Reconnect and keepalive behavior
 - Minimal echo bot example

@@ -55,7 +55,7 @@ Event data frames can be parsed with `WebSocketFrame::event` or received with `W
 - optional `data` is a caller-provided base64 string
 - optional `biz_rt` is sent as the `biz_rt` frame header
 
-Packet reassembly for `sum > 1`, automatic dispatch, reconnect policy, and timer-driven heartbeat are intentionally left to the higher-level Channel event layer.
+The higher-level `EventConsumer` wraps a single `WebSocketConnection` and combines receive, Lark event parsing, handler execution, and ACK sending. `handle_next_event` adds a `biz_rt` ACK header when the handler returns an ACK without one. If event parsing fails after a WebSocket event frame has been received, `EventConsumer` attempts to send an internal-server-error ACK before returning. Handler errors are not ACKed so the platform can retry delivery. Packet reassembly for `sum > 1`, reconnect policy, and timer-driven heartbeat remain later Channel event-layer work.
 
 ## Message Mapping
 
