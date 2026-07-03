@@ -70,7 +70,7 @@ where
             &mut self.connection,
             &frame,
             &event,
-            WebSocketEventAck::internal_server_error(),
+            WebSocketEventAck::internal_server_error,
         )
         .await
         {
@@ -98,13 +98,11 @@ where
         };
 
         let started = Instant::now();
-        let channel_event = parse_channel_event_or_ack_parse_error(
-            &mut self.connection,
-            &frame,
-            &event,
-            WebSocketEventAck::internal_server_error().with_biz_rt(elapsed_millis(started)),
-        )
-        .await?;
+        let channel_event =
+            parse_channel_event_or_ack_parse_error(&mut self.connection, &frame, &event, || {
+                WebSocketEventAck::internal_server_error().with_biz_rt(elapsed_millis(started))
+            })
+            .await?;
         let event = ReceivedEvent::from_parsed_websocket_event(frame.clone(), event, channel_event);
         let ack = handler(event).await?;
         let ack = if ack.biz_rt().is_none() {
@@ -121,7 +119,7 @@ async fn parse_channel_event_or_ack_parse_error<C>(
     connection: &mut C,
     frame: &WebSocketEventFrame,
     event: &WebSocketEvent,
-    parse_error_ack: WebSocketEventAck,
+    parse_error_ack: impl FnOnce() -> WebSocketEventAck,
 ) -> Result<ChannelEvent>
 where
     C: EventConnection,
@@ -130,7 +128,7 @@ where
         Ok(channel_event) => Ok(channel_event),
         Err(error) => {
             connection
-                .ack_websocket_event(frame, parse_error_ack)
+                .ack_websocket_event(frame, parse_error_ack())
                 .await?;
             Err(error)
         }
