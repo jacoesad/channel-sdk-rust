@@ -34,11 +34,12 @@ impl ChannelEvent {
 }
 
 pub fn parse_lark_event_payload(payload: &[u8]) -> Result<ChannelEvent> {
-    let raw: Value = serde_json::from_slice(payload)?;
-    let envelope: LarkEventEnvelope = serde_json::from_value(raw.clone())?;
+    let envelope: LarkEventEnvelope = serde_json::from_slice(payload)?;
     let context = envelope.context();
 
     if envelope.header.event_type == "im.message.receive_v1" {
+        let raw: Value = serde_json::from_slice(payload)?;
+
         return envelope
             .event
             .map(|event| {
@@ -50,6 +51,8 @@ pub fn parse_lark_event_payload(payload: &[u8]) -> Result<ChannelEvent> {
                 Error::Validation("lark message receive event is missing event body".to_owned())
             });
     }
+
+    let raw: Value = serde_json::from_slice(payload)?;
 
     Ok(ChannelEvent::Unknown {
         context: Some(context),
