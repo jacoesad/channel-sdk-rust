@@ -29,6 +29,8 @@ Inbound `im.message.receive_v1` event payloads can be parsed with `parse_lark_ev
 
 Use `NormalizedMessage::mentions_bot(bot_open_id)` to decide whether a group message explicitly mentions the current bot. Full rich content, media messages, and advanced mention rendering remain later normalization work.
 
+With the `websocket` feature enabled, `EventConsumer` can receive a single WebSocket event, parse it into `ChannelEvent`, call a user-provided handler, and ACK the underlying event frame. `handle_next_event` adds `biz_rt` when the handler ACK omits it. If event parsing fails after a frame is received, `EventConsumer` attempts to send an internal-server-error ACK before returning. Handler errors are not ACKed so the platform can retry delivery. This is a single-connection helper; reconnect policy, timer-driven heartbeat, and split-packet reassembly are still follow-up work.
+
 Lower-level raw message entry points are available under `lark_channel::lark_openapi` for callers that need to pass `MessageContent` directly. See [lark-api.md](lark-api.md) for the exact official API mappings.
 
 Structured mentions, rich content builders, card helpers, media upload, and richer retry policies are planned follow-up work.

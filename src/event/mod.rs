@@ -6,6 +6,12 @@ use crate::message::{
 };
 use crate::{Error, Result};
 
+#[cfg(feature = "websocket")]
+mod consumer;
+
+#[cfg(feature = "websocket")]
+pub use consumer::{EventConnection, EventConsumer, ReceivedEvent};
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EventContext {
     pub event_id: String,

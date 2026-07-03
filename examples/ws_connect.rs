@@ -1,12 +1,11 @@
 use std::env;
 use std::error::Error;
 use std::io;
-use std::time::Instant;
 
 use lark_channel::lark_openapi::{
     OpenApiClient, ReqwestOpenApiTransport, TokioTungsteniteWebSocketTransport, WebSocketEventAck,
 };
-use lark_channel::{ChannelConfig, ChannelEvent};
+use lark_channel::{ChannelConfig, ChannelEvent, EventConsumer};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -27,52 +26,55 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     if env::var("LARK_WS_CONNECT").ok().as_deref() == Some("1") {
         let transport = TokioTungsteniteWebSocketTransport::new();
-        let mut connection = transport.connect(&endpoint).await?;
+        let connection = transport.connect(&endpoint).await?;
         println!(
             "websocket connected: device_id={:?}, service_id={:?}",
             connection.device_id(),
             connection.service_id()
         );
+        let mut consumer = EventConsumer::new(connection);
         if env::var("LARK_WS_RECEIVE_ONCE").ok().as_deref() == Some("1") {
             println!("waiting for one websocket event");
-            if let Some((frame, event)) = connection.next_event().await? {
-                let started = Instant::now();
-                println!(
-                    "websocket event received: message_id={:?}, trace_id={:?}, payload_len={}",
-                    event.message_id(),
-                    event.trace_id(),
-                    event.payload().len()
-                );
-                match ChannelEvent::parse_lark_payload(event.payload())? {
-                    ChannelEvent::Message(message) => {
-                        println!(
-                            "message event parsed: chat_id={}, chat_type={:?}, sender={}, text={:?}, mentions={}",
-                            message.chat_id,
-                            message.chat_type,
-                            message.sender.open_id,
-                            message.text,
-                            message.mentions.len()
-                        );
-                    }
-                    ChannelEvent::Unknown { context, .. } => {
-                        println!("event parsed as unknown: context={context:?}");
-                    }
-                    ChannelEvent::CardAction { context, .. } => {
-                        println!("card action event parsed: context={context:?}");
-                    }
-                }
-                let biz_rt = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                connection
-                    .ack_event(&frame, WebSocketEventAck::ok().with_biz_rt(biz_rt))
-                    .await?;
+            let handled = consumer
+                .handle_next_event(|event| async move {
+                    print_received_event(&event);
+                    Ok(WebSocketEventAck::ok())
+                })
+                .await?;
+            if handled {
                 println!("websocket event acknowledged");
             }
         }
-        connection.close().await?;
+        consumer.into_inner().close().await?;
         println!("websocket closed");
     }
 
     Ok(())
+}
+
+fn print_received_event(event: &lark_channel::ReceivedEvent) {
+    println!(
+        "websocket event received: message_id={:?}, trace_id={:?}, payload_len={}",
+        event.message_id, event.trace_id, event.payload_len
+    );
+    match &event.event {
+        ChannelEvent::Message(message) => {
+            println!(
+                "message event parsed: chat_id={}, chat_type={:?}, sender={}, text={:?}, mentions={}",
+                message.chat_id,
+                message.chat_type,
+                message.sender.open_id,
+                message.text,
+                message.mentions.len()
+            );
+        }
+        ChannelEvent::Unknown { context, .. } => {
+            println!("event parsed as unknown: context={context:?}");
+        }
+        ChannelEvent::CardAction { context, .. } => {
+            println!("card action event parsed: context={context:?}");
+        }
+    }
 }
 
 fn required_env(name: &str) -> Result<String, io::Error> {

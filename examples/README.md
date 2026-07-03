@@ -78,7 +78,7 @@ cargo run --example reply_text
 
 ## WebSocket endpoint and connection
 
-`ws_connect.rs` requests the long-connection WebSocket endpoint. By default it prints redacted endpoint metadata only. Set `LARK_WS_CONNECT=1` to open the WebSocket connection and close it immediately. Add `LARK_WS_RECEIVE_ONCE=1` to wait for one event frame, print event metadata, send an ACK, and close.
+`ws_connect.rs` requests the long-connection WebSocket endpoint. By default it prints redacted endpoint metadata only. Set `LARK_WS_CONNECT=1` to open the WebSocket connection and close it immediately. Add `LARK_WS_RECEIVE_ONCE=1` to wait for one event through `EventConsumer`, print parsed event metadata, send an ACK, and close.
 
 ```bash
 export LARK_APP_ID=cli_xxx
@@ -99,4 +99,6 @@ The real connection modes consume one long-connection slot while connected. Lark
 
 The endpoint URL can include transient connection material, so the example does not print the full query string.
 
-The library also exposes low-level event helpers behind the `websocket` feature. Use `WebSocketConnection::next_event` to receive an event data frame and `WebSocketConnection::ack_event` to acknowledge it after your handler finishes. `next_event` returns the event payload separately from the lightweight ACK frame metadata, avoiding a second copy of large event payloads. Packet reassembly, automatic dispatch, heartbeat scheduling, and reconnect policy are intentionally left for later Channel event-layer work.
+The library also exposes low-level event helpers behind the `websocket` feature. Use `WebSocketConnection::next_event` to receive an event data frame and `WebSocketConnection::ack_event` to acknowledge it after your handler finishes. `next_event` returns the event payload separately from the lightweight ACK frame metadata, avoiding a second copy of large event payloads.
+
+For application code, prefer `EventConsumer` when you want a single-connection receive/parse/handler/ACK loop. `handle_next_event` adds a `biz_rt` ACK header when the handler returns an ACK without one. If parsing fails after a frame is received, `EventConsumer` attempts to send an internal-server-error ACK before returning. Handler errors are not ACKed so the platform can retry delivery. Packet reassembly, heartbeat scheduling, and reconnect policy are intentionally left for later Channel event-layer work.
