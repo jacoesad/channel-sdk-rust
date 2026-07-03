@@ -16,6 +16,7 @@ The selected domain comes from `ChannelConfig`:
 | Create Message | `POST /open-apis/im/v1/messages` | `OpenApiClient::create_message` |
 | Reply Message | `POST /open-apis/im/v1/messages/{message_id}/reply` | `OpenApiClient::reply_message` |
 | WebSocket Endpoint | `POST /callback/ws/endpoint` | `OpenApiClient::websocket_endpoint` |
+| Receive Message Event | WebSocket event `im.message.receive_v1` | `parse_lark_event_payload`, `ChannelEvent::parse_lark_payload` |
 
 Official docs:
 
@@ -23,6 +24,7 @@ Official docs:
 - [Tenant Access Token](https://open.feishu.cn/document/server-docs/authentication-management/access-token/tenant_access_token_internal.md)
 - [Create Message](https://open.feishu.cn/document/server-docs/im-v1/message/create.md)
 - [Reply Message](https://open.feishu.cn/document/server-docs/im-v1/message/reply.md)
+- [Receive Message](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive.md)
 - [Use long connections to receive events](https://open.feishu.cn/document/server-docs/event-subscription-guide/event-subscription-configure-/request-url-configuration-case.md)
 
 ## WebSocket Endpoint Mapping

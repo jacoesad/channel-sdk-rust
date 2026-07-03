@@ -1,6 +1,6 @@
 # Messages
 
-This document describes the message behavior currently exposed by `lark-channel`, starting with outbound text messages and replies.
+This document describes the message behavior currently exposed by `lark-channel`, including outbound text messages, replies, and minimal inbound message normalization.
 
 ## Current Scope
 
@@ -17,6 +17,17 @@ The SDK currently provides a high-level `MessageSender` for text messages and re
 `message` and `reply` accept caller-provided `MessageContent`. `text_message` and `text_reply` are convenience entry points for plain text content.
 
 `MessageSender` automatically generates one idempotency key per logical send or reply and reuses it across conservative transport-failure retries. Callers that already have a stable upstream request, task, or event identifier can provide it through the per-call options. Caller-provided `uuid` values must be non-empty and at most 50 characters. `MessageSender` does not retry API errors, validation failures, or OpenAPI HTTP status errors.
+
+Inbound `im.message.receive_v1` event payloads can be parsed with `parse_lark_event_payload` or `ChannelEvent::parse_lark_payload`. The current normalized message model captures the bridge-critical fields:
+
+- message id, chat id, and chat type
+- sender open id and sender type
+- message type and plain text content for text events
+- root, parent, and thread ids when present
+- structured mentions with mention key, open id, name, and mentioned type when provided
+- the raw event payload for unsupported or richer follow-up parsing
+
+Use `NormalizedMessage::mentions_bot(bot_open_id)` to decide whether a group message explicitly mentions the current bot. Full rich content, media messages, and advanced mention rendering remain later normalization work.
 
 Lower-level raw message entry points are available under `lark_channel::lark_openapi` for callers that need to pass `MessageContent` directly. See [lark-api.md](lark-api.md) for the exact official API mappings.
 
