@@ -34,25 +34,26 @@ impl ChannelEvent {
 }
 
 pub fn parse_lark_event_payload(payload: &[u8]) -> Result<ChannelEvent> {
-    let envelope: LarkEventEnvelope = serde_json::from_slice(payload)?;
-    let context = envelope.context();
+    let raw: Value = serde_json::from_slice(payload)?;
+    let header = raw
+        .get("header")
+        .cloned()
+        .map(serde_json::from_value::<LarkEventHeader>)
+        .transpose()?
+        .ok_or_else(|| Error::Validation("lark event payload is missing header".to_owned()))?;
+    let context = header.context();
 
-    if envelope.header.event_type == "im.message.receive_v1" {
-        let raw: Value = serde_json::from_slice(payload)?;
-
-        return envelope
-            .event
-            .map(|event| {
-                serde_json::from_value::<LarkMessageReceiveEvent>(event)
-                    .map(|event| ChannelEvent::Message(event.into_normalized_message(raw)))
-            })
+    if header.event_type == "im.message.receive_v1" {
+        return raw
+            .get("event")
+            .cloned()
+            .map(serde_json::from_value::<LarkMessageReceiveEvent>)
             .transpose()?
+            .map(|event| ChannelEvent::Message(event.into_normalized_message(raw)))
             .ok_or_else(|| {
                 Error::Validation("lark message receive event is missing event body".to_owned())
             });
     }
-
-    let raw: Value = serde_json::from_slice(payload)?;
 
     Ok(ChannelEvent::Unknown {
         context: Some(context),
@@ -60,19 +61,12 @@ pub fn parse_lark_event_payload(payload: &[u8]) -> Result<ChannelEvent> {
     })
 }
 
-#[derive(Debug, Deserialize)]
-struct LarkEventEnvelope {
-    header: LarkEventHeader,
-    #[serde(default)]
-    event: Option<Value>,
-}
-
-impl LarkEventEnvelope {
+impl LarkEventHeader {
     fn context(&self) -> EventContext {
         EventContext {
-            event_id: self.header.event_id.clone(),
-            tenant_key: self.header.tenant_key.clone(),
-            create_time: self.header.create_time.clone(),
+            event_id: self.event_id.clone(),
+            tenant_key: self.tenant_key.clone(),
+            create_time: self.create_time.clone(),
         }
     }
 }
