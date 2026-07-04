@@ -17,6 +17,7 @@ The selected domain comes from `ChannelConfig`:
 | Reply Message | `POST /open-apis/im/v1/messages/{message_id}/reply` | `OpenApiClient::reply_message` |
 | WebSocket Endpoint | `POST /callback/ws/endpoint` | `OpenApiClient::websocket_endpoint` |
 | Receive Message Event | WebSocket event `im.message.receive_v1` | `parse_lark_event_payload`, `ChannelEvent::parse_lark_payload` |
+| Card Action Callback | WebSocket callback `card.action.trigger` | `parse_lark_event_payload`, `ChannelEvent::parse_lark_payload` |
 
 Official docs:
 
@@ -25,6 +26,7 @@ Official docs:
 - [Create Message](https://open.feishu.cn/document/server-docs/im-v1/message/create.md)
 - [Reply Message](https://open.feishu.cn/document/server-docs/im-v1/message/reply.md)
 - [Receive Message](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive.md)
+- [Card Action Callback](https://open.feishu.cn/document/feishu-cards/card-callback-communication.md)
 - [Use long connections to receive events](https://open.feishu.cn/document/server-docs/event-subscription-guide/event-subscription-configure-/request-url-configuration-case.md)
 
 ## WebSocket Endpoint Mapping
@@ -58,6 +60,22 @@ Event data frames can be parsed with `WebSocketFrame::event` or received with `W
 The higher-level `EventConsumer` wraps a single `WebSocketConnection` and combines receive, Lark event parsing, handler execution, and ACK sending. `handle_next_event` adds a `biz_rt` ACK header when the handler returns an ACK without one. If event parsing fails after a WebSocket event frame has been received, `EventConsumer` attempts to send an internal-server-error ACK before returning. Handler errors are not ACKed so the platform can retry delivery.
 
 `EventLoop` uses the same receive, parse, handler, and ACK semantics with an `EventStreamConnector` to keep consuming events across clean closes and transport errors. The built-in `OpenApiWebSocketEventConnector` requests a fresh WebSocket endpoint before each connection attempt. If the reconnect limit is reached after clean closes, the loop returns `EventLoopExit::ReconnectLimitReached`; if the final retryable failure is a transport error, the loop returns that error. WebSocket ping frames are answered by `WebSocketConnection`; packet reassembly for `sum > 1` and timer-driven application heartbeat remain later Channel event-layer work.
+
+## Event Mapping
+
+`parse_lark_event_payload` maps the official Lark/Feishu event and callback envelope into `ChannelEvent`:
+
+- `im.message.receive_v1` -> `ChannelEvent::Message`
+- `card.action.trigger` -> `ChannelEvent::CardAction`
+- other event types -> `ChannelEvent::Unknown`
+
+`ChannelEvent::CardAction` preserves the full raw callback payload and exposes the bridge-critical card interaction fields:
+
+- `context`: event id, tenant key, and create time from the callback header
+- `operator`: tenant key, user id, open id, and union id when provided
+- `token`: the short-lived token used by future card update helpers
+- `action`: component tag, name, timezone, developer-provided `value`, form/input/select values, checked state, and the raw action object
+- `host`, `delivery_type`, and card display context such as `open_message_id` and `open_chat_id`
 
 ## Message Mapping
 
