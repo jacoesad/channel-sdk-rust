@@ -41,44 +41,46 @@ During the early `0.x` series, releases generally correspond to completed roadma
 - `v0.5.0`: Milestone 5, rich content, cards, and streaming replies
 - `v0.6.0`: Milestone 6, media helpers
 
-Patch versions such as `v0.2.1` are reserved for bug fixes or small follow-up improvements within a completed milestone.
+Patch versions such as `v0.2.1` are reserved for bug fixes or small follow-up improvements within a completed milestone. Release PRs such as `release/v0.4.0` should stay separate and contain only release metadata, changelog/readme version updates, and publish dry-run fixes.
+
+Milestone bullets are intended as default PR boundaries. A PR should usually complete one bullet. Closely related small bullets may be grouped into one PR, and unusually large bullets may be split into several focused PRs. Completed bullets may include the PRs that delivered them.
 
 ## Milestone 0: Project Foundation
 
-- MIT license and repository initialization
-- Rust crate scaffold and public module layout
-- Initial shared types for config, events, messages, cards, media, and errors
-- Initial `ChannelClient` trait shape
-- README with project status and scope
-- Roadmap for staged development
-- CI for formatting, clippy, and tests
+- MIT license and repository initialization (#1)
+- Rust crate scaffold and public module layout (#1)
+- Initial shared types for config, events, messages, cards, media, and errors (#1)
+- Initial `ChannelClient` trait shape (#1)
+- README with project status and scope (#1)
+- Roadmap for staged development (#1)
+- CI for formatting, clippy, and tests (#1)
 
 Milestone 0 is complete when the scaffold is reviewable and the repository has enough structure for feature work to proceed through focused follow-up PRs.
 
 ## Milestone 1: OpenAPI Foundation
 
-- App and tenant access token requests with in-memory cache
-- Feishu/Lark domain selection through safe built-in domains
-- Typed API error parsing
-- Transport-agnostic OpenAPI client abstraction
-- Tests for token refresh and API error handling
+- App and tenant access token requests with in-memory cache (#4)
+- Feishu/Lark domain selection through safe built-in domains (#4)
+- Typed API error parsing (#4)
+- Transport-agnostic OpenAPI client abstraction (#4)
+- Tests for token refresh and API error handling (#4)
 
 ## Milestone 2: Outbound Messaging
 
-- OpenAPI-level helpers for sending text messages to chats and users
-- OpenAPI-level helpers for replying to messages and threads
-- Idempotency options for OpenAPI send and reply calls
-- Managed `MessageSender` with basic retry and automatic idempotency reuse
-- Runnable examples for sending and replying to messages
+- OpenAPI-level helpers for sending text messages to chats and users (#6)
+- OpenAPI-level helpers for replying to messages and threads (#7)
+- Idempotency options for OpenAPI send and reply calls (#8)
+- Managed `MessageSender` with basic retry and automatic idempotency reuse (#10)
+- Runnable examples for sending and replying to messages (#6, #7, #10)
 
 ## Milestone 3: Events and WebSocket
 
-- WebSocket connection lifecycle
-- Event acknowledgement
-- Message receive events
-- Single-connection event consumer for receive, parse, handler, and ACK
-- Basic reconnecting event loop for clean closes and transport errors
-- Card action events
+- WebSocket connection lifecycle (#12)
+- Event acknowledgement (#13)
+- Message receive events (#14)
+- Single-connection event consumer for receive, parse, handler, and ACK (#15)
+- Basic reconnecting event loop for clean closes and transport errors (#16)
+- Card action events (#17)
 - Timer-driven heartbeat and reconnect refinements
 - Minimal echo bot example
 

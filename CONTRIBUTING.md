@@ -62,6 +62,25 @@ PR descriptions should include:
 - what is intentionally out of scope
 - verification commands, usually `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-features`
 
+### PR Scope
+
+Prefer PRs that map to one complete, user-understandable capability. Roadmap milestone bullets are the default PR boundary: a PR should usually complete one bullet. Closely related small bullets may be grouped into one PR, and unusually large bullets may be split into several focused PRs. Documentation, examples, and small helper changes should usually travel with the feature they explain.
+
+Good standalone PR boundaries:
+
+- a new public SDK capability
+- a risky protocol or transport behavior change
+- a structural refactor that would obscure a feature diff
+- a release-only version bump and publish preparation
+- a focused bug fix or compatibility fix
+
+Avoid standalone PRs for:
+
+- small roadmap wording updates
+- example-only polish that belongs with a feature
+- tiny helper functions without independent user value
+- workflow experiments unless the repository policy itself is changing
+
 ## Review Responses
 
 The following practices are recommendations rather than hard requirements. When addressing review feedback, prefer replying in the related review thread so the decision stays close to the original comment.
