@@ -22,9 +22,9 @@ pub use event::{
 };
 #[cfg(feature = "websocket")]
 pub use event::{
-    EventConnection, EventConsumer, EventLoop, EventLoopExit, EventLoopOptions,
-    EventStreamConnector, OpenApiWebSocketEventConnector, ReceivedEvent,
-    WebSocketEndpointConnector,
+    EventConnection, EventConnectionItem, EventConsumer, EventLoop, EventLoopExit,
+    EventLoopOptions, EventReconnectLimit, EventStreamConnector, OpenApiWebSocketEventConnector,
+    ReceivedEvent, WebSocketEndpointConnector,
 };
 pub use message::{
     MessageBuilder, MessageChatType, MessageContent, MessageId, MessageMention,

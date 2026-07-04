@@ -82,6 +82,7 @@ Milestone 0 is complete when the scaffold is reviewable and the repository has e
 - Basic reconnecting event loop for clean closes and transport errors (#16)
 - Card action events (#17)
 - Timer-driven heartbeat and reconnect refinements
+- Split-packet reassembly for large long-connection events and callbacks with `sum > 1`
 - Minimal echo bot example
 
 ## Milestone 4: Message Normalization
@@ -97,6 +98,7 @@ Milestone 0 is complete when the scaffold is reviewable and the repository has e
 - Simple Markdown/text conversion into Feishu/Lark rich message content
 - Structured mention and link helpers where supported by Lark/Feishu message formats
 - Card creation and update helpers
+- Card callback handling that depends on split-packet reassembly for large payloads
 - Markdown streaming reply helper
 - Update throttling for long-running agent output
 - Continuation behavior for long messages

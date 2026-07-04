@@ -96,6 +96,14 @@ impl WebSocketClientConfig {
     pub fn ping_interval(&self) -> Option<Duration> {
         positive_seconds(self.ping_interval)
     }
+
+    pub fn reconnect_interval(&self) -> Option<Duration> {
+        positive_seconds(self.reconnect_interval)
+    }
+
+    pub fn reconnect_nonce(&self) -> Option<Duration> {
+        positive_seconds(self.reconnect_nonce)
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -631,15 +639,30 @@ impl WebSocketConnection {
     }
 
     pub async fn next_event(&mut self) -> Result<Option<(WebSocketEventFrame, WebSocketEvent)>> {
-        while let Some(frame) = self.next_frame().await? {
-            if self.handle_control_frame(&frame)? {
-                continue;
-            }
-            if let Some(event) = frame.into_event()? {
-                return Ok(Some(event));
+        loop {
+            match self.next_event_or_activity().await? {
+                Some(WebSocketConnectionItem::Event(frame, event)) => {
+                    return Ok(Some((frame, *event)));
+                }
+                Some(WebSocketConnectionItem::Activity) => {}
+                None => return Ok(None),
             }
         }
-        Ok(None)
+    }
+
+    pub(crate) async fn next_event_or_activity(
+        &mut self,
+    ) -> Result<Option<WebSocketConnectionItem>> {
+        let Some(frame) = self.next_frame().await? else {
+            return Ok(None);
+        };
+        if self.handle_control_frame(&frame)? {
+            return Ok(Some(WebSocketConnectionItem::Activity));
+        }
+        if let Some((frame, event)) = frame.into_event()? {
+            return Ok(Some(WebSocketConnectionItem::Event(frame, Box::new(event))));
+        }
+        Ok(Some(WebSocketConnectionItem::Activity))
     }
 
     pub async fn send_frame(&mut self, frame: &WebSocketFrame) -> Result<()> {
@@ -690,6 +713,12 @@ impl WebSocketConnection {
         }
         Ok(())
     }
+}
+
+#[cfg(feature = "websocket")]
+pub(crate) enum WebSocketConnectionItem {
+    Event(WebSocketEventFrame, Box<WebSocketEvent>),
+    Activity,
 }
 
 fn positive_seconds(value: Option<u64>) -> Option<Duration> {
