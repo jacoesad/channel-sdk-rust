@@ -16,7 +16,10 @@ pub mod message;
 pub use client::{ChannelClient, ChannelClientExt};
 pub use config::{ChannelConfig, Domain};
 pub use error::{Error, Result};
-pub use event::{ChannelEvent, EventContext, parse_lark_event_payload};
+pub use event::{
+    CardActionContext, CardActionEvent, CardActionOperator, CardActionPayload, ChannelEvent,
+    EventContext, parse_lark_event_payload,
+};
 #[cfg(feature = "websocket")]
 pub use event::{
     EventConnection, EventConsumer, EventLoop, EventLoopExit, EventLoopOptions,

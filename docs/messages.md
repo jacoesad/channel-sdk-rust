@@ -29,6 +29,8 @@ Inbound `im.message.receive_v1` event payloads can be parsed with `parse_lark_ev
 
 Use `NormalizedMessage::mentions_bot(bot_open_id)` to decide whether a group message explicitly mentions the current bot. Full rich content, media messages, and advanced mention rendering remain later normalization work.
 
+Card action callback payloads with event type `card.action.trigger` are parsed as `ChannelEvent::CardAction`. The current model exposes the operator ids, callback update token, action value, form/input/select values, host metadata, open message id, open chat id, and raw payload. Responding to a card callback or updating the card content remains later card-helper work.
+
 With the `websocket` feature enabled, `EventConsumer` can receive a single WebSocket event, parse it into `ChannelEvent`, call a user-provided handler, and ACK the underlying event frame. `handle_next_event` adds `biz_rt` when the handler ACK omits it. If event parsing fails after a frame is received, `EventConsumer` attempts to send an internal-server-error ACK before returning. Handler errors are not ACKed so the platform can retry delivery.
 
 `EventLoop` adds a basic reconnecting receive loop with the same parse, handler, and ACK semantics as `EventConsumer`. It reconnects after clean socket closes and transport errors, requests a fresh WebSocket endpoint through `OpenApiWebSocketEventConnector`, and returns `EventLoopExit::ReconnectLimitReached` when the reconnect limit is reached after clean closes. If the final retryable failure is a transport error, it returns that error. Timer-driven heartbeat, split-packet reassembly, and richer dispatch policy are still follow-up work.

@@ -71,8 +71,11 @@ fn print_received_event(event: &lark_channel::ReceivedEvent) {
         ChannelEvent::Unknown { context, .. } => {
             println!("event parsed as unknown: context={context:?}");
         }
-        ChannelEvent::CardAction { context, .. } => {
-            println!("card action event parsed: context={context:?}");
+        ChannelEvent::CardAction(card_action) => {
+            println!(
+                "card action event parsed: context={:?}",
+                card_action.context
+            );
         }
     }
 }
