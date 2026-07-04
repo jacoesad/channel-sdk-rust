@@ -59,7 +59,9 @@ Event data frames can be parsed with `WebSocketFrame::event` or received with `W
 
 The higher-level `EventConsumer` wraps a single `WebSocketConnection` and combines receive, Lark event parsing, handler execution, and ACK sending. `handle_next_event` adds a `biz_rt` ACK header when the handler returns an ACK without one. If event parsing fails after a WebSocket event frame has been received, `EventConsumer` attempts to send an internal-server-error ACK before returning. Handler errors are not ACKed so the platform can retry delivery.
 
-`EventLoop` uses the same receive, parse, handler, and ACK semantics with an `EventStreamConnector` to keep consuming events across clean closes and transport errors. The built-in `OpenApiWebSocketEventConnector` requests a fresh WebSocket endpoint before each connection attempt. If the reconnect limit is reached after clean closes, the loop returns `EventLoopExit::ReconnectLimitReached`; if the final retryable failure is a transport error, the loop returns that error. WebSocket ping frames are answered by `WebSocketConnection`; packet reassembly for `sum > 1` and timer-driven application heartbeat remain later Channel event-layer work.
+`EventLoop` uses the same receive, parse, handler, and ACK semantics with an `EventStreamConnector` to keep consuming events across clean closes and transport errors. The built-in `OpenApiWebSocketEventConnector` requests a fresh WebSocket endpoint before each connection attempt. If the reconnect limit is reached after clean closes, the loop returns `EventLoopExit::ReconnectLimitReached`; if the final retryable failure is a transport error, the loop returns that error. WebSocket ping frames are answered by `WebSocketConnection`, and the event loop sends the official application-level heartbeat ping at the endpoint-provided `PingInterval` while waiting for events. If the endpoint omits a positive `PingInterval`, the connection falls back to 120 seconds. Heartbeat send failures are treated as reconnectable transport errors.
+
+`WebSocketFrame::heartbeat_ping` builds the official heartbeat control frame (`method=Control`, `type=ping`, `SeqID=0`, `LogID=0`, and the endpoint `service_id`). `WebSocketConnection` preserves the endpoint `ClientConfig`, exposes the positive `PingInterval` as a `Duration`, and applies `ClientConfig` updates carried by application-level `pong` control frames. Packet reassembly for `sum > 1` remains later Channel event-layer work.
 
 ## Event Mapping
 
@@ -116,5 +118,5 @@ The current subset intentionally does not expose:
 - user-token based message create/reply
 - full response message models beyond `data.message_id`
 - packet reassembly for long-connection events split across multiple frames
-- automatic event dispatch and timer-driven heartbeat
+- automatic event dispatch beyond the current `EventConsumer` and `EventLoop` handlers
 - a complete Lark/Feishu OpenAPI surface

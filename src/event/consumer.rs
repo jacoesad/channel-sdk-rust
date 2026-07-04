@@ -1,5 +1,6 @@
 use std::fmt;
 use std::future::Future;
+use std::time::Duration;
 use std::time::Instant;
 
 use super::ChannelEvent;
@@ -18,6 +19,14 @@ pub trait EventConnection {
         frame: &WebSocketEventFrame,
         ack: WebSocketEventAck,
     ) -> impl Future<Output = Result<()>> + Send;
+
+    fn heartbeat_interval(&self) -> Option<Duration> {
+        None
+    }
+
+    fn send_heartbeat(&mut self) -> impl Future<Output = Result<()>> + Send {
+        std::future::ready(Ok(()))
+    }
 }
 
 impl EventConnection for WebSocketConnection {
@@ -33,6 +42,14 @@ impl EventConnection for WebSocketConnection {
         ack: WebSocketEventAck,
     ) -> Result<()> {
         self.ack_event(frame, ack).await
+    }
+
+    fn heartbeat_interval(&self) -> Option<Duration> {
+        Some(self.heartbeat_interval())
+    }
+
+    async fn send_heartbeat(&mut self) -> Result<()> {
+        WebSocketConnection::send_heartbeat(self).await
     }
 }
 

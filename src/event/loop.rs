@@ -1,6 +1,8 @@
 use std::future::Future;
 use std::time::Duration;
 
+use tokio::time::Instant as TokioInstant;
+
 use crate::lark_openapi::{
     OpenApiClient, OpenApiTransport, TokioTungsteniteWebSocketTransport, WebSocketConnection,
     WebSocketEndpoint, WebSocketEventAck,
@@ -210,14 +212,18 @@ where
     H: FnMut(ReceivedEvent) -> F,
     F: Future<Output = Result<WebSocketEventAck>> + Send,
 {
+    let mut heartbeat = HeartbeatSchedule::new(connection.heartbeat_interval());
+
     loop {
-        let Some((frame, event)) = (match connection.next_websocket_event().await {
-            Ok(event) => event,
-            Err(error) if is_reconnectable(&error) => {
-                return Ok(ConnectionExit::ReconnectableError(error));
-            }
-            Err(error) => return Err(error),
-        }) else {
+        let Some((frame, event)) =
+            (match next_websocket_event_with_heartbeat(connection, &mut heartbeat).await {
+                Ok(event) => event,
+                Err(error) if is_reconnectable(&error) => {
+                    return Ok(ConnectionExit::ReconnectableError(error));
+                }
+                Err(error) => return Err(error),
+            })
+        else {
             return Ok(ConnectionExit::Closed);
         };
 
@@ -248,6 +254,67 @@ where
             } else {
                 Err(error)
             };
+        }
+    }
+}
+
+struct HeartbeatSchedule {
+    interval: Option<Duration>,
+    deadline: Option<TokioInstant>,
+}
+
+impl HeartbeatSchedule {
+    fn new(interval: Option<Duration>) -> Self {
+        Self {
+            interval,
+            deadline: interval.map(|interval| TokioInstant::now() + interval),
+        }
+    }
+
+    fn refresh_interval(&mut self, interval: Option<Duration>) {
+        if self.interval == interval {
+            return;
+        }
+        self.interval = interval;
+        self.deadline = interval.map(|interval| TokioInstant::now() + interval);
+    }
+
+    fn mark_heartbeat_sent(&mut self, interval: Option<Duration>) {
+        self.interval = interval;
+        self.deadline = interval.map(|interval| TokioInstant::now() + interval);
+    }
+}
+
+async fn next_websocket_event_with_heartbeat<C>(
+    connection: &mut C,
+    heartbeat: &mut HeartbeatSchedule,
+) -> Result<
+    Option<(
+        crate::lark_openapi::WebSocketEventFrame,
+        crate::lark_openapi::WebSocketEvent,
+    )>,
+>
+where
+    C: EventConnection,
+{
+    loop {
+        heartbeat.refresh_interval(connection.heartbeat_interval());
+
+        let Some(deadline) = heartbeat.deadline else {
+            let event = connection.next_websocket_event().await;
+            heartbeat.refresh_interval(connection.heartbeat_interval());
+            return event;
+        };
+
+        match tokio::time::timeout_at(deadline, connection.next_websocket_event()).await {
+            Ok(event) => {
+                heartbeat.refresh_interval(connection.heartbeat_interval());
+                return event;
+            }
+            Err(_) => {
+                connection.send_heartbeat().await?;
+                heartbeat.mark_heartbeat_sent(connection.heartbeat_interval());
+            }
         }
     }
 }
@@ -289,14 +356,23 @@ mod tests {
     #[derive(Default)]
     struct FakeConnection {
         events: VecDeque<Result<Option<(WebSocketEventFrame, WebSocketEvent)>>>,
+        receive_delays: VecDeque<Duration>,
         ack_results: VecDeque<Result<()>>,
+        heartbeat_interval: Option<Duration>,
+        heartbeat_results: VecDeque<Result<()>>,
         acks: Arc<AtomicUsize>,
+        heartbeats: Arc<AtomicUsize>,
     }
 
     impl EventConnection for FakeConnection {
         async fn next_websocket_event(
             &mut self,
         ) -> Result<Option<(WebSocketEventFrame, WebSocketEvent)>> {
+            if let Some(delay) = self.receive_delays.pop_front() {
+                if !delay.is_zero() {
+                    tokio::time::sleep(delay).await;
+                }
+            }
             self.events.pop_front().unwrap_or(Ok(None))
         }
 
@@ -307,6 +383,15 @@ mod tests {
         ) -> Result<()> {
             self.acks.fetch_add(1, Ordering::SeqCst);
             self.ack_results.pop_front().unwrap_or(Ok(()))
+        }
+
+        fn heartbeat_interval(&self) -> Option<Duration> {
+            self.heartbeat_interval
+        }
+
+        async fn send_heartbeat(&mut self) -> Result<()> {
+            self.heartbeats.fetch_add(1, Ordering::SeqCst);
+            self.heartbeat_results.pop_front().unwrap_or(Ok(()))
         }
     }
 
@@ -511,6 +596,95 @@ mod tests {
         assert_eq!(acks.load(Ordering::SeqCst), 2);
     }
 
+    #[tokio::test]
+    async fn run_sends_heartbeat_while_waiting_for_event() {
+        let handled = Arc::new(AtomicUsize::new(0));
+        let acks = Arc::new(AtomicUsize::new(0));
+        let heartbeats = Arc::new(AtomicUsize::new(0));
+        let mut connector = FakeConnector::default();
+        connector
+            .connections
+            .push_back(fake_connection_with_heartbeat(
+                acks.clone(),
+                heartbeats.clone(),
+                vec![Ok(Some(fake_event("one")))],
+                vec![Duration::from_millis(20), Duration::ZERO],
+                Some(Duration::from_millis(1)),
+                Vec::new(),
+            ));
+
+        let options = EventLoopOptions::new()
+            .with_max_reconnects(0)
+            .with_reconnect_delay(Duration::ZERO);
+        let mut event_loop = EventLoop::with_options(connector, options);
+
+        let exit = event_loop
+            .run({
+                let handled = handled.clone();
+                move |_| {
+                    let handled = handled.clone();
+                    async move {
+                        handled.fetch_add(1, Ordering::SeqCst);
+                        Ok(WebSocketEventAck::ok())
+                    }
+                }
+            })
+            .await
+            .expect("event loop exits");
+
+        assert_eq!(exit, EventLoopExit::ReconnectLimitReached);
+        assert_eq!(handled.load(Ordering::SeqCst), 1);
+        assert_eq!(acks.load(Ordering::SeqCst), 1);
+        assert_eq!(heartbeats.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn run_reconnects_after_heartbeat_transport_error() {
+        let handled = Arc::new(AtomicUsize::new(0));
+        let acks = Arc::new(AtomicUsize::new(0));
+        let heartbeats = Arc::new(AtomicUsize::new(0));
+        let mut connector = FakeConnector::default();
+        connector
+            .connections
+            .push_back(fake_connection_with_heartbeat(
+                acks.clone(),
+                heartbeats.clone(),
+                vec![Ok(Some(fake_event("one")))],
+                vec![Duration::from_millis(20)],
+                Some(Duration::from_millis(1)),
+                vec![Err(Error::Transport("heartbeat failed".to_owned()))],
+            ));
+        connector.connections.push_back(fake_connection(
+            acks.clone(),
+            vec![Ok(Some(fake_event("two")))],
+        ));
+
+        let options = EventLoopOptions::new()
+            .with_max_reconnects(1)
+            .with_reconnect_delay(Duration::ZERO);
+        let mut event_loop = EventLoop::with_options(connector, options);
+
+        let exit = event_loop
+            .run({
+                let handled = handled.clone();
+                move |_| {
+                    let handled = handled.clone();
+                    async move {
+                        handled.fetch_add(1, Ordering::SeqCst);
+                        Ok(WebSocketEventAck::ok())
+                    }
+                }
+            })
+            .await
+            .expect("event loop exits");
+
+        assert_eq!(exit, EventLoopExit::ReconnectLimitReached);
+        assert_eq!(event_loop.connector().attempts, 2);
+        assert_eq!(handled.load(Ordering::SeqCst), 1);
+        assert_eq!(acks.load(Ordering::SeqCst), 1);
+        assert_eq!(heartbeats.load(Ordering::SeqCst), 1);
+    }
+
     fn fake_connection(
         acks: Arc<AtomicUsize>,
         events: Vec<Result<Option<(WebSocketEventFrame, WebSocketEvent)>>>,
@@ -523,10 +697,40 @@ mod tests {
         events: Vec<Result<Option<(WebSocketEventFrame, WebSocketEvent)>>>,
         ack_results: Vec<Result<()>>,
     ) -> FakeConnection {
+        fake_connection_with_heartbeat(
+            acks,
+            Arc::new(AtomicUsize::new(0)),
+            events,
+            Vec::new(),
+            None,
+            Vec::new(),
+        )
+        .with_ack_results(ack_results)
+    }
+
+    fn fake_connection_with_heartbeat(
+        acks: Arc<AtomicUsize>,
+        heartbeats: Arc<AtomicUsize>,
+        events: Vec<Result<Option<(WebSocketEventFrame, WebSocketEvent)>>>,
+        receive_delays: Vec<Duration>,
+        heartbeat_interval: Option<Duration>,
+        heartbeat_results: Vec<Result<()>>,
+    ) -> FakeConnection {
         FakeConnection {
             events: VecDeque::from(events),
-            ack_results: VecDeque::from(ack_results),
+            receive_delays: VecDeque::from(receive_delays),
+            ack_results: VecDeque::new(),
+            heartbeat_interval,
+            heartbeat_results: VecDeque::from(heartbeat_results),
             acks,
+            heartbeats,
+        }
+    }
+
+    impl FakeConnection {
+        fn with_ack_results(mut self, ack_results: Vec<Result<()>>) -> Self {
+            self.ack_results = VecDeque::from(ack_results);
+            self
         }
     }
 
