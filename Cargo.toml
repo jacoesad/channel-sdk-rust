@@ -40,6 +40,10 @@ required-features = ["reqwest-transport", "websocket"]
 name = "ws_event_loop"
 required-features = ["reqwest-transport", "websocket"]
 
+[[example]]
+name = "echo_bot"
+required-features = ["reqwest-transport", "websocket"]
+
 [features]
 default = ["reqwest-transport"]
 reqwest-transport = ["dep:reqwest"]
