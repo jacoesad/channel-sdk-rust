@@ -3,9 +3,8 @@ use std::time::{Duration, Instant};
 
 use tokio::time::Instant as TokioInstant;
 
-use super::consumer::{
-    EventConnection, EventConnectionItem, ReceivedEvent, parse_channel_event_or_ack_parse_error,
-};
+use super::ChannelEvent;
+use super::consumer::{EventConnection, EventConnectionItem, ReceivedEvent};
 use super::reassembly::{EventPacketReassembler, EventPacketReassemblyOptions};
 use crate::lark_openapi::{WebSocketEvent, WebSocketEventAck, WebSocketEventFrame};
 use crate::{Error, Result};
@@ -39,29 +38,29 @@ impl EventRuntimeDispatcher {
         F: Future<Output = Result<WebSocketEventAck>> + Send,
     {
         let started = Instant::now();
-        let channel_event =
-            match parse_channel_event_or_ack_parse_error(connection, &frame, &event, || {
-                WebSocketEventAck::internal_server_error().with_biz_rt(elapsed_millis(started))
-            })
-            .await
-            {
-                Ok(channel_event) => channel_event,
-                Err(error) if is_reconnectable(&error) => {
-                    return Ok(EventRuntimeDispatchOutcome::ReconnectableError(error));
+        let channel_event = match ChannelEvent::parse_lark_payload(event.payload()) {
+            Ok(channel_event) => channel_event,
+            Err(error) => {
+                let ack_result = EventRuntimeWriter::new(connection)
+                    .ack_internal_server_error(&frame, Some(elapsed_millis(started)))
+                    .await;
+                if let Err(ack_error) = ack_result {
+                    return if is_reconnectable(&ack_error) {
+                        Ok(EventRuntimeDispatchOutcome::ReconnectableError(ack_error))
+                    } else {
+                        Err(ack_error)
+                    };
                 }
-                Err(error) => return Err(error),
-            };
+                return Err(error);
+            }
+        };
         let received =
             ReceivedEvent::from_parsed_websocket_event(frame.clone(), event, channel_event);
         let ack = match handler(received).await {
             Ok(ack) => ack,
             Err(error) => {
-                if let Err(ack_error) = connection
-                    .ack_websocket_event(
-                        &frame,
-                        WebSocketEventAck::internal_server_error()
-                            .with_biz_rt(elapsed_millis(started)),
-                    )
+                if let Err(ack_error) = EventRuntimeWriter::new(connection)
+                    .ack_internal_server_error(&frame, Some(elapsed_millis(started)))
                     .await
                 {
                     return if is_reconnectable(&ack_error) {
@@ -73,12 +72,8 @@ impl EventRuntimeDispatcher {
                 return Err(error);
             }
         };
-        let ack = if ack.biz_rt().is_none() {
-            ack.with_biz_rt(elapsed_millis(started))
-        } else {
-            ack
-        };
-        if let Err(error) = connection.ack_websocket_event(&frame, ack).await {
+        let ack = ack_with_elapsed_biz_rt(ack, started);
+        if let Err(error) = EventRuntimeWriter::new(connection).ack(&frame, ack).await {
             return if is_reconnectable(&error) {
                 Ok(EventRuntimeDispatchOutcome::ReconnectableError(error))
             } else {
@@ -86,6 +81,40 @@ impl EventRuntimeDispatcher {
             };
         }
         Ok(EventRuntimeDispatchOutcome::Handled)
+    }
+}
+
+pub(super) struct EventRuntimeWriter<'a, C> {
+    connection: &'a mut C,
+}
+
+impl<'a, C> EventRuntimeWriter<'a, C>
+where
+    C: EventConnection,
+{
+    fn new(connection: &'a mut C) -> Self {
+        Self { connection }
+    }
+
+    async fn ack(&mut self, frame: &WebSocketEventFrame, ack: WebSocketEventAck) -> Result<()> {
+        self.connection.ack_websocket_event(frame, ack).await
+    }
+
+    async fn ack_internal_server_error(
+        &mut self,
+        frame: &WebSocketEventFrame,
+        biz_rt: Option<u64>,
+    ) -> Result<()> {
+        let ack = if let Some(biz_rt) = biz_rt {
+            WebSocketEventAck::internal_server_error().with_biz_rt(biz_rt)
+        } else {
+            WebSocketEventAck::internal_server_error()
+        };
+        self.ack(frame, ack).await
+    }
+
+    async fn send_heartbeat(&mut self) -> Result<()> {
+        self.connection.send_heartbeat().await
     }
 }
 
@@ -140,8 +169,8 @@ impl EventRuntimeReceiver {
                 Ok(Some(event)) => return Ok(Some(event)),
                 Ok(None) => {}
                 Err(error) => {
-                    connection
-                        .ack_websocket_event(&frame, WebSocketEventAck::internal_server_error())
+                    EventRuntimeWriter::new(connection)
+                        .ack_internal_server_error(&frame, None)
                         .await?;
                     return Err(error);
                 }
@@ -195,7 +224,7 @@ impl EventRuntimeReceiver {
                     return Err(Error::Transport("websocket heartbeat timed out".to_owned()));
                 }
                 Err(_) => {
-                    connection.send_heartbeat().await?;
+                    EventRuntimeWriter::new(connection).send_heartbeat().await?;
                     self.heartbeat.mark_heartbeat_sent_with_timeout(
                         connection.heartbeat_interval(),
                         self.heartbeat_timeout,
@@ -273,4 +302,12 @@ impl HeartbeatDeadline {
 
 fn elapsed_millis(started: Instant) -> u64 {
     started.elapsed().as_millis().min(u64::MAX as u128) as u64
+}
+
+fn ack_with_elapsed_biz_rt(ack: WebSocketEventAck, started: Instant) -> WebSocketEventAck {
+    if ack.biz_rt().is_none() {
+        ack.with_biz_rt(elapsed_millis(started))
+    } else {
+        ack
+    }
 }
