@@ -29,9 +29,11 @@ Inbound `im.message.receive_v1` event payloads can be parsed with `parse_lark_ev
 - structured mentions with mention key, open id, user id, union id, name, and mentioned type when provided
 - the raw event payload for unsupported or richer follow-up parsing
 
+For `message_type=text`, `text` is read from the parsed content `text` field. For `message_type=post`, `text` is derived from the selected post document title and supported inline elements. The current post normalization chooses `zh_cn`, then `en_us`, then `ja_jp`, then the first document-shaped locale block. It includes `text`, link text, and `@user_name` from `at` elements, joins post lines with newlines, and skips non-text resource elements such as images while keeping the full parsed `content` available.
+
 Malformed message content does not drop an otherwise valid receive event. In that case `raw_content` preserves the exact content string, `content` is `None`, and `text` is empty. Unsupported message types still produce `ChannelEvent::Message` with message metadata and raw payload access; richer normalization remains follow-up work.
 
-Use `NormalizedMessage::mentions_bot(bot_open_id)` to decide whether a group message explicitly mentions the current bot. Full rich content, media/resource descriptors, and advanced mention rendering remain later normalization work.
+Use `NormalizedMessage::mentions_bot(bot_open_id)` to decide whether a group message explicitly mentions the current bot. Media/resource descriptors and advanced rich-content rendering remain later normalization work.
 
 Card action callback payloads with event type `card.action.trigger` are parsed as `ChannelEvent::CardAction`. The current model exposes the operator ids, callback update token, action value, form/input/select values, host metadata, open message id, open chat id, and raw payload. Responding to a card callback or updating the card content remains later card-helper work.
 
