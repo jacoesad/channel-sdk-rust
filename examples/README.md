@@ -103,7 +103,7 @@ The library also exposes low-level event helpers behind the `websocket` feature.
 
 For application code, prefer `EventConsumer` when you want a single-connection receive/parse/handler/ACK loop. `handle_next_event` adds a `biz_rt` ACK header when the handler returns an ACK without one. If parsing fails after a frame is received, `EventConsumer` attempts to send an internal-server-error ACK before returning. Handler errors are also ACKed as internal-server-error before the original handler error is returned. Current high-level event handling expects single-packet events; frames with `sum > 1` are not buffered or reassembled yet. Packet reassembly and broader dispatch policy are intentionally left for later Channel event-layer work.
 
-`ws_event_loop.rs` runs the higher-level reconnecting `EventLoop`. It requests a fresh WebSocket endpoint for each connection attempt, reconnects after clean closes and transport errors, sends application-level heartbeat pings at the endpoint-provided `PingInterval` with a 120-second fallback while waiting for events or handler results, prints parsed event metadata, and ACKs handled events.
+`ws_event_loop.rs` runs the higher-level reconnecting `EventLoop`. It requests a fresh WebSocket endpoint for each connection attempt, reconnects after clean closes and transport errors, sends application-level heartbeat pings at the endpoint-provided `PingInterval` with a 120-second fallback while waiting for events, prints parsed event metadata, and ACKs handled events.
 
 ```bash
 export LARK_APP_ID=cli_xxx
@@ -114,6 +114,6 @@ LARK_WS_MAX_RECONNECTS=3 LARK_WS_RECONNECT_DELAY_MS=1000 \
 cargo run --example ws_event_loop --features websocket
 ```
 
-The example uses local reconnect defaults (`LARK_WS_MAX_RECONNECTS=3`, `LARK_WS_RECONNECT_DELAY_MS=1000`) so local smoke tests terminate predictably. Set `LARK_WS_USE_SERVER_RECONNECT_CONFIG=true` to follow endpoint-provided `ReconnectCount`, `ReconnectInterval`, and `ReconnectNonce` values instead. Set `LARK_WS_HEARTBEAT_TIMEOUT_MS` to enable an optional liveness watchdog after application-level heartbeat pings.
+The example uses local reconnect defaults (`LARK_WS_MAX_RECONNECTS=3`, `LARK_WS_RECONNECT_DELAY_MS=1000`) so local smoke tests terminate predictably. Set `LARK_WS_USE_SERVER_RECONNECT_CONFIG=true` to follow endpoint-provided reconnect policy instead. Set `LARK_WS_HEARTBEAT_TIMEOUT_MS` to enable an optional liveness watchdog after application-level heartbeat pings sent while waiting for events.
 
-The loop responds to WebSocket ping frames through the underlying connection and sends the official application-level heartbeat ping while waiting for events. Heartbeat send failures and optional heartbeat liveness timeouts are treated as reconnectable transport errors. Split-packet reassembly for frames with `sum > 1` and richer dispatch policy are still follow-up work.
+The loop responds to WebSocket ping frames through the underlying connection and sends the official application-level heartbeat ping while waiting for events. Handler futures are awaited without driving connection heartbeats; keep handlers short or spawn long-running work outside the loop. Heartbeat send failures and optional heartbeat liveness timeouts are treated as reconnectable transport errors. Split-packet reassembly for frames with `sum > 1` and richer dispatch policy are still follow-up work.

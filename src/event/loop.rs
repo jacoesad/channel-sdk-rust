@@ -332,13 +332,9 @@ where
             };
         let received =
             ReceivedEvent::from_parsed_websocket_event(frame.clone(), event, channel_event);
-        let ack = match await_with_heartbeat(connection, &mut heartbeat, handler(received)).await {
+        let ack = match handler(received).await {
             Ok(ack) => ack,
-            Err(AwaitWithHeartbeatError::Heartbeat(error)) if is_reconnectable(&error) => {
-                return Ok(ConnectionExit::ReconnectableError(error));
-            }
-            Err(AwaitWithHeartbeatError::Heartbeat(error)) => return Err(error),
-            Err(AwaitWithHeartbeatError::Future(error)) => {
+            Err(error) => {
                 if let Err(ack_error) = connection
                     .ack_websocket_event(
                         &frame,
@@ -551,39 +547,6 @@ where
                     connection.heartbeat_interval(),
                     heartbeat_timeout,
                 );
-            }
-        }
-    }
-}
-
-enum AwaitWithHeartbeatError {
-    Future(Error),
-    Heartbeat(Error),
-}
-
-async fn await_with_heartbeat<C, F, T>(
-    connection: &mut C,
-    heartbeat: &mut HeartbeatSchedule,
-    future: F,
-) -> std::result::Result<T, AwaitWithHeartbeatError>
-where
-    C: EventConnection + Send,
-    F: Future<Output = Result<T>>,
-{
-    tokio::pin!(future);
-    loop {
-        heartbeat.refresh_interval(connection.heartbeat_interval());
-        let Some(deadline) = heartbeat.deadline else {
-            return future.await.map_err(AwaitWithHeartbeatError::Future);
-        };
-        tokio::select! {
-            result = &mut future => return result.map_err(AwaitWithHeartbeatError::Future),
-            _ = tokio::time::sleep_until(deadline) => {
-                connection
-                    .send_heartbeat()
-                    .await
-                    .map_err(AwaitWithHeartbeatError::Heartbeat)?;
-                heartbeat.mark_heartbeat_sent(connection.heartbeat_interval());
             }
         }
     }
@@ -1033,7 +996,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_sends_heartbeat_while_handler_is_running() {
+    async fn run_does_not_send_heartbeat_while_handler_is_running() {
         let handled = Arc::new(AtomicUsize::new(0));
         let acks = Arc::new(AtomicUsize::new(0));
         let heartbeats = Arc::new(AtomicUsize::new(0));
@@ -1072,7 +1035,7 @@ mod tests {
         assert_eq!(exit, EventLoopExit::ReconnectLimitReached);
         assert_eq!(handled.load(Ordering::SeqCst), 1);
         assert_eq!(acks.load(Ordering::SeqCst), 1);
-        assert!(heartbeats.load(Ordering::SeqCst) >= 1);
+        assert_eq!(heartbeats.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]

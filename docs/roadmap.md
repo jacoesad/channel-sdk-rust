@@ -30,6 +30,12 @@ Low-level OpenAPI types should stay namespaced under `lark_channel::lark_openapi
 
 The currently implemented OpenAPI surface is tracked in [lark-api.md](lark-api.md).
 
+## WebSocket Runtime Direction
+
+The current WebSocket event loop is intentionally conservative. It owns one connection, sends application-level heartbeat pings only while waiting for the next event, then runs the user handler and sends the ACK. It does not drive connection heartbeats while a handler future is running, because the current `EventConnection` API serializes receive, heartbeat, and ACK writes through one mutable connection.
+
+The target runtime model should use a connection runtime that owns the WebSocket lifecycle. A receive loop should read data and control frames and publish parsed events. A heartbeat loop should schedule application-level heartbeat pings from the latest endpoint-provided client configuration. A reconnect controller should own connection replacement and restart the runtime after reconnectable failures. A serialized writer path should be the only component allowed to write protocol frames such as ACK, heartbeat, and close frames. User handlers should receive parsed events and return ACK policy without owning the connection. That model would allow long-running handlers and connection heartbeats to coexist without competing for the same mutable connection.
+
 ## Version Policy
 
 During the early `0.x` series, releases generally correspond to completed roadmap milestones rather than every merged feature PR:
@@ -82,6 +88,7 @@ Milestone 0 is complete when the scaffold is reviewable and the repository has e
 - Basic reconnecting event loop for clean closes and transport errors (#16)
 - Card action events (#17)
 - Timer-driven heartbeat and reconnect refinements
+- WebSocket runtime refactor with separate receive, heartbeat, reconnect, and writer responsibilities
 - Split-packet reassembly for large long-connection events and callbacks with `sum > 1`
 - Minimal echo bot example
 
