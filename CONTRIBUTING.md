@@ -102,6 +102,8 @@ Release PRs should contain only release preparation changes:
 
 Release PRs run an additional CI job with `cargo package` and `cargo publish --dry-run`.
 
+Before opening a release PR or declaring it merge-ready, review the full release range relative to the previous release tag, such as `v0.2.0..HEAD` for `v0.3.0`. The release notes or PR body should summarize the user-visible changes in that range, not only the release branch metadata diff.
+
 After the release PR is merged back to `main`, tag the resulting `main` commit and publish from that commit. Do not tag or publish from the release branch before it is merged.
 
 Keep annotated tag messages short, for example `Release v0.2.0`. Put release highlights, links, and migration notes in the GitHub Release instead.
@@ -110,14 +112,15 @@ Current manual release flow:
 
 1. Cut a short `release/<version>` branch from the latest `main`.
 2. Make release-only changes, such as version, metadata, README, or release notes updates.
-3. Open a release PR and wait for CI, including `Release dry run`, to pass.
-4. Merge the release PR back to `main`.
-5. Update local `main` to the merged commit.
-6. Verify the merged commit with `cargo publish --dry-run`.
-7. Create and push an annotated tag, for example `v0.2.0`.
-8. Run `cargo publish` from the tagged `main` commit.
-9. Confirm the crate version is visible on crates.io.
-10. Create a GitHub Release from that tag.
-11. Delete the release branch when it is no longer useful.
+3. Review the full release range from the previous tag through the release branch head.
+4. Open a release PR and wait for CI, including `Release dry run`, to pass.
+5. Merge the release PR back to `main`.
+6. Update local `main` to the merged commit.
+7. Verify the merged commit with `cargo publish --dry-run`.
+8. Create and push an annotated tag, for example `v0.2.0`.
+9. Run `cargo publish` from the tagged `main` commit.
+10. Confirm the crate version is visible on crates.io.
+11. Create a GitHub Release from that tag.
+12. Delete the release branch when it is no longer useful.
 
 Trusted publishing and tag-triggered release automation may be added later.
