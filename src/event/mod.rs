@@ -10,6 +10,8 @@ use crate::{Error, Result};
 mod consumer;
 #[cfg(feature = "websocket")]
 mod r#loop;
+#[cfg(feature = "websocket")]
+mod reassembly;
 
 #[cfg(feature = "websocket")]
 pub use consumer::{EventConnection, EventConnectionItem, EventConsumer, ReceivedEvent};
@@ -18,6 +20,8 @@ pub use r#loop::{
     EventLoop, EventLoopExit, EventLoopOptions, EventReconnectLimit, EventStreamConnector,
     OpenApiWebSocketEventConnector, WebSocketEndpointConnector,
 };
+#[cfg(feature = "websocket")]
+pub use reassembly::EventPacketReassemblyOptions;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EventContext {

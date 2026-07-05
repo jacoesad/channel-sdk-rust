@@ -50,13 +50,20 @@ Event data frames can be parsed with `WebSocketFrame::event` or received with `W
 - `seq`
 - raw payload bytes
 
-The current high-level event helpers expect single-packet events. Frames whose
-protocol metadata reports `sum > 1` are not automatically reassembled yet; the
-raw `sum` and `seq` values are exposed so future Channel event-layer work can
-add packet buffering and reassembly without changing the wire model.
-This limitation only affects long-connection receive paths, including large
-message events or card action callbacks. HTTP OpenAPI calls such as sending
-messages or cards do not depend on packet reassembly.
+`WebSocketConnection::next_event` is a lower-level raw-frame API and returns
+one Lark/Feishu protocol packet at a time. Higher-level Channel helpers
+`EventConsumer` and `EventLoop` reassemble application-level split packets whose
+protocol metadata reports `sum > 1` before parsing payloads or invoking
+handlers. This is separate from WebSocket protocol fragmentation handled by the
+underlying WebSocket implementation: Lark/Feishu split packets are identified by
+the `sum` and `seq` headers carried inside each event data frame.
+
+Packet sequence values are zero-based for multi-packet events. The reassembler
+groups packets by `message_id` and `trace_id`, stores only received packet
+bytes, and joins packets in `seq` order once all parts are present. Duplicate
+packet sequences replace earlier bytes. The default high-level limits are 1024
+parts, 16 MiB per logical event, and 128 pending logical events; callers can tune
+them with `EventPacketReassemblyOptions` on `EventConsumer` or `EventLoop`.
 
 `WebSocketFrame::event_ack_frame`, `WebSocketEventFrame::event_ack_frame`, and `WebSocketConnection::ack_event` build and send the ACK frame for a handled event. The ACK payload follows the official SDK shape:
 
@@ -71,7 +78,7 @@ The higher-level `EventConsumer` wraps a single `WebSocketConnection` and combin
 
 WebSocket ping frames are answered by `WebSocketConnection`, and the event loop sends the official application-level heartbeat ping at the endpoint-provided `PingInterval` while waiting for the next event. If the endpoint omits a positive `PingInterval`, the connection falls back to 120 seconds. Heartbeat send failures and optional heartbeat liveness timeouts during receive waits are treated as reconnectable transport errors. User handlers are awaited without driving connection heartbeats; handlers should return promptly or spawn long-running work outside the event loop. A future runtime should split receive, heartbeat, reconnect, and serialized writes so handler work and connection heartbeats can run independently.
 
-`WebSocketFrame::heartbeat_ping` builds the official heartbeat control frame (`method=Control`, `type=ping`, `SeqID=0`, `LogID=0`, and the endpoint `service_id`). `WebSocketConnection` preserves the endpoint `ClientConfig`, exposes the positive `PingInterval` as a `Duration`, and applies `ClientConfig` updates carried by application-level `pong` control frames. Application-level control frames are surfaced to the event loop as activity so heartbeat liveness checks can be cleared without waiting for a data event. Packet reassembly for `sum > 1` remains later Channel event-layer work.
+`WebSocketFrame::heartbeat_ping` builds the official heartbeat control frame (`method=Control`, `type=ping`, `SeqID=0`, `LogID=0`, and the endpoint `service_id`). `WebSocketConnection` preserves the endpoint `ClientConfig`, exposes the positive `PingInterval` as a `Duration`, and applies `ClientConfig` updates carried by application-level `pong` control frames. Application-level control frames are surfaced to the event loop as activity so heartbeat liveness checks can be cleared without waiting for a data event.
 
 ## Event Mapping
 
@@ -127,6 +134,5 @@ The current subset intentionally does not expose:
 - `receive_id_type=union_id`, `user_id`, or `email`
 - user-token based message create/reply
 - full response message models beyond `data.message_id`
-- packet reassembly for large long-connection events or callbacks split across multiple frames
 - automatic event dispatch beyond the current `EventConsumer` and `EventLoop` handlers
 - a complete Lark/Feishu OpenAPI surface

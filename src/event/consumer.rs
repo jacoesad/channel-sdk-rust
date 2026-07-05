@@ -4,6 +4,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use super::ChannelEvent;
+use super::reassembly::{EventPacketReassembler, EventPacketReassemblyOptions};
 use crate::Result;
 use crate::lark_openapi::{
     WebSocketClientConfig, WebSocketConnection, WebSocketEvent, WebSocketEventAck,
@@ -94,11 +95,22 @@ impl EventConnection for WebSocketConnection {
 
 pub struct EventConsumer<C> {
     connection: C,
+    reassembler: EventPacketReassembler,
 }
 
 impl<C> EventConsumer<C> {
     pub fn new(connection: C) -> Self {
-        Self { connection }
+        Self::with_reassembly_options(connection, EventPacketReassemblyOptions::default())
+    }
+
+    pub fn with_reassembly_options(
+        connection: C,
+        reassembly_options: EventPacketReassemblyOptions,
+    ) -> Self {
+        Self {
+            connection,
+            reassembler: EventPacketReassembler::new(reassembly_options),
+        }
     }
 
     pub fn connection(&self) -> &C {
@@ -119,7 +131,9 @@ where
     C: EventConnection,
 {
     pub async fn next_event(&mut self) -> Result<Option<ReceivedEvent>> {
-        let Some((frame, event)) = self.connection.next_websocket_event().await? else {
+        let Some((frame, event)) =
+            next_reassembled_websocket_event(&mut self.connection, &mut self.reassembler).await?
+        else {
             return Ok(None);
         };
         let channel_event = match parse_channel_event_or_ack_parse_error(
@@ -149,7 +163,9 @@ where
         H: FnOnce(ReceivedEvent) -> F,
         F: Future<Output = Result<WebSocketEventAck>> + Send,
     {
-        let Some((frame, event)) = self.connection.next_websocket_event().await? else {
+        let Some((frame, event)) =
+            next_reassembled_websocket_event(&mut self.connection, &mut self.reassembler).await?
+        else {
             return Ok(false);
         };
 
@@ -180,6 +196,30 @@ where
         };
         self.connection.ack_websocket_event(&frame, ack).await?;
         Ok(true)
+    }
+}
+
+pub(super) async fn next_reassembled_websocket_event<C>(
+    connection: &mut C,
+    reassembler: &mut EventPacketReassembler,
+) -> Result<Option<(WebSocketEventFrame, WebSocketEvent)>>
+where
+    C: EventConnection,
+{
+    loop {
+        let Some((frame, event)) = connection.next_websocket_event().await? else {
+            return Ok(None);
+        };
+        match reassembler.push(frame.clone(), event) {
+            Ok(Some(event)) => return Ok(Some(event)),
+            Ok(None) => {}
+            Err(error) => {
+                connection
+                    .ack_websocket_event(&frame, WebSocketEventAck::internal_server_error())
+                    .await?;
+                return Err(error);
+            }
+        }
     }
 }
 
@@ -341,6 +381,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn handle_next_event_reassembles_split_packets_before_handler() {
+        let payload = message_payload();
+        let payload_len = payload.len();
+        let split_at = payload.len() / 2;
+        let connection = FakeConnection {
+            events: VecDeque::from([
+                fake_event_packet(2, 1, payload[split_at..].to_vec()),
+                fake_event_packet(2, 0, payload[..split_at].to_vec()),
+            ]),
+            acks: Vec::new(),
+        };
+        let mut consumer = EventConsumer::new(connection);
+
+        let handled = consumer
+            .handle_next_event(move |event| async move {
+                assert_eq!(event.payload_len, payload_len);
+                assert_eq!(event.sum, 2);
+                assert_eq!(event.seq, 0);
+                match event.event {
+                    ChannelEvent::Message(message) => {
+                        assert_eq!(message.text, "hello");
+                    }
+                    other => panic!("expected message event, got {other:?}"),
+                }
+                Ok(WebSocketEventAck::ok())
+            })
+            .await
+            .expect("handled");
+
+        assert!(handled);
+        assert_eq!(consumer.connection().acks.len(), 1);
+        assert_eq!(consumer.connection().acks[0].code(), 200);
+    }
+
+    #[tokio::test]
     async fn handle_next_event_preserves_handler_biz_rt() {
         let mut consumer = EventConsumer::new(fake_connection_with_payload(message_payload()));
 
@@ -398,6 +473,18 @@ mod tests {
     }
 
     fn fake_connection_with_payload(payload: Vec<u8>) -> FakeConnection {
+        let (frame, event) = fake_event_packet(1, 1, payload);
+        FakeConnection {
+            events: VecDeque::from([(frame, event)]),
+            acks: Vec::new(),
+        }
+    }
+
+    fn fake_event_packet(
+        sum: u32,
+        seq: u32,
+        payload: Vec<u8>,
+    ) -> (WebSocketEventFrame, WebSocketEvent) {
         let frame = WebSocketFrame {
             seq_id: 1,
             log_id: 2,
@@ -407,19 +494,15 @@ mod tests {
                 WebSocketHeader::new("type", "event"),
                 WebSocketHeader::new("message_id", "om_ws"),
                 WebSocketHeader::new("trace_id", "trace_1"),
-                WebSocketHeader::new("sum", "1"),
-                WebSocketHeader::new("seq", "1"),
+                WebSocketHeader::new("sum", sum.to_string()),
+                WebSocketHeader::new("seq", seq.to_string()),
             ],
             payload_encoding: None,
             payload_type: None,
             payload: Some(payload),
             log_id_new: None,
         };
-        let (frame, event) = frame.into_event().expect("event frame").expect("event");
-        FakeConnection {
-            events: VecDeque::from([(frame, event)]),
-            acks: Vec::new(),
-        }
+        frame.into_event().expect("event frame").expect("event")
     }
 
     fn message_payload() -> Vec<u8> {
