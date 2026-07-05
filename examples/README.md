@@ -117,3 +117,19 @@ cargo run --example ws_event_loop --features websocket
 The example uses local reconnect defaults (`LARK_WS_MAX_RECONNECTS=3`, `LARK_WS_RECONNECT_DELAY_MS=1000`) so local smoke tests terminate predictably. Set `LARK_WS_USE_SERVER_RECONNECT_CONFIG=true` to follow endpoint-provided reconnect policy instead. Set `LARK_WS_HEARTBEAT_TIMEOUT_MS` to enable an optional liveness watchdog after application-level heartbeat pings sent while waiting for events.
 
 The loop responds to WebSocket ping frames through the underlying connection and sends the official application-level heartbeat ping while waiting for events. Handler futures are awaited without driving connection heartbeats; keep handlers short or spawn long-running work outside the loop. Heartbeat send failures and optional heartbeat liveness timeouts are treated as reconnectable transport errors. Split-packet reassembly for frames with `sum > 1` and richer dispatch policy are still follow-up work.
+
+## Minimal echo bot
+
+`echo_bot.rs` combines `EventLoop` and `MessageSender` into a minimal bot. It listens for message events, replies to text messages with `echo: <text>`, and ACKs skipped or handled events.
+
+```bash
+export LARK_APP_ID=cli_xxx
+export LARK_APP_SECRET=app_secret
+
+# Optional for group chats: reply only when this bot is mentioned.
+export LARK_BOT_OPEN_ID=ou_xxx
+
+cargo run --example echo_bot --features websocket
+```
+
+Private chat text messages are echoed by default. Group messages are echoed only when `LARK_BOT_OPEN_ID` is set and the message mentions that bot. Set `LARK_ECHO_ALL_GROUP_MESSAGES=true` to echo all group text messages. `LARK_ECHO_PREFIX`, `LARK_ECHO_REPLY_IN_THREAD`, `LARK_MAX_ATTEMPTS`, and the same `LARK_WS_*` reconnect options used by `ws_event_loop.rs` are optional.
