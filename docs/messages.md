@@ -21,13 +21,17 @@ The SDK currently provides a high-level `MessageSender` for text messages and re
 Inbound `im.message.receive_v1` event payloads can be parsed with `parse_lark_event_payload` or `ChannelEvent::parse_lark_payload`. The current normalized message model captures the bridge-critical fields:
 
 - message id, chat id, and chat type
-- sender open id and sender type
-- message type and plain text content for text events
+- sender open id, user id, union id, and sender type when present
+- message type and bridge-facing plain text when it can be derived safely
+- the original Lark/Feishu stringified message content as `raw_content`
+- parsed JSON message content as `content` when the original content is valid JSON
 - root, parent, and thread ids when present
-- structured mentions with mention key, open id, name, and mentioned type when provided
+- structured mentions with mention key, open id, user id, union id, name, and mentioned type when provided
 - the raw event payload for unsupported or richer follow-up parsing
 
-Use `NormalizedMessage::mentions_bot(bot_open_id)` to decide whether a group message explicitly mentions the current bot. Full rich content, media messages, and advanced mention rendering remain later normalization work.
+Malformed message content does not drop an otherwise valid receive event. In that case `raw_content` preserves the exact content string, `content` is `None`, and `text` is empty. Unsupported message types still produce `ChannelEvent::Message` with message metadata and raw payload access; richer normalization remains follow-up work.
+
+Use `NormalizedMessage::mentions_bot(bot_open_id)` to decide whether a group message explicitly mentions the current bot. Full rich content, media/resource descriptors, and advanced mention rendering remain later normalization work.
 
 Card action callback payloads with event type `card.action.trigger` are parsed as `ChannelEvent::CardAction`. The current model exposes the operator ids, callback update token, action value, form/input/select values, host metadata, open message id, open chat id, and raw payload. Responding to a card callback or updating the card content remains later card-helper work.
 
