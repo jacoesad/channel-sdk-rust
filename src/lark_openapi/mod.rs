@@ -28,6 +28,8 @@ pub use message::{MessageCreateOptions, MessageReplyOptions};
 pub use transport::ReqwestOpenApiTransport;
 pub use transport::{BoxFuture, HttpMethod, HttpRequest, HttpResponse, OpenApiTransport};
 #[cfg(feature = "websocket")]
+pub(crate) use ws::WebSocketConnectionItem;
+#[cfg(feature = "websocket")]
 pub use ws::{TokioTungsteniteWebSocketTransport, WebSocketConnection};
 pub use ws::{
     WebSocketClientConfig, WebSocketEndpoint, WebSocketEvent, WebSocketEventAck,

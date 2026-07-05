@@ -19,16 +19,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let openapi = OpenApiClient::new(config, ReqwestOpenApiTransport::new());
     let connector =
         OpenApiWebSocketEventConnector::new(openapi, TokioTungsteniteWebSocketTransport::new());
-    let options = EventLoopOptions::new()
+    let mut options = EventLoopOptions::new()
         .with_max_reconnects(optional_usize("LARK_WS_MAX_RECONNECTS")?.unwrap_or(3))
         .with_reconnect_delay(Duration::from_millis(
             optional_u64("LARK_WS_RECONNECT_DELAY_MS")?.unwrap_or(1000),
         ));
+    if optional_bool("LARK_WS_USE_SERVER_RECONNECT_CONFIG")?.unwrap_or(false) {
+        options = options.with_server_reconnect_config(true);
+    }
+    if let Some(timeout_ms) = optional_u64("LARK_WS_HEARTBEAT_TIMEOUT_MS")? {
+        options = options.with_heartbeat_timeout(Some(Duration::from_millis(timeout_ms)));
+    }
 
     println!(
-        "starting websocket event loop: max_reconnects={}, reconnect_delay={:?}",
+        "starting websocket event loop: max_reconnects={}, reconnect_delay={:?}, server_reconnect_config={}, heartbeat_timeout={:?}",
         options.max_reconnects(),
-        options.reconnect_delay()
+        options.reconnect_delay(),
+        options.use_server_reconnect_config(),
+        options.heartbeat_timeout()
     );
 
     let mut event_loop = EventLoop::with_options(connector, options);
@@ -94,6 +102,13 @@ fn optional_u64(name: &str) -> Result<Option<u64>, io::Error> {
         .transpose()
 }
 
+fn optional_bool(name: &str) -> Result<Option<bool>, io::Error> {
+    env::var(name)
+        .ok()
+        .map(|value| parse_bool(name, &value))
+        .transpose()
+}
+
 fn parse_usize(name: &str, value: &str) -> Result<usize, io::Error> {
     value.parse().map_err(|_| {
         io::Error::new(
@@ -101,6 +116,17 @@ fn parse_usize(name: &str, value: &str) -> Result<usize, io::Error> {
             format!("{name} must be a non-negative integer"),
         )
     })
+}
+
+fn parse_bool(name: &str, value: &str) -> Result<bool, io::Error> {
+    match value {
+        "1" | "true" | "TRUE" | "True" => Ok(true),
+        "0" | "false" | "FALSE" | "False" => Ok(false),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{name} must be true or false"),
+        )),
+    }
 }
 
 fn parse_u64(name: &str, value: &str) -> Result<u64, io::Error> {

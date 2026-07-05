@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -14,6 +16,8 @@ const HEADER_SUM: &str = "sum";
 const HEADER_SEQ: &str = "seq";
 const HEADER_TRACE_ID: &str = "trace_id";
 const HEADER_BIZ_RT: &str = "biz_rt";
+#[cfg(any(feature = "websocket", test))]
+const DEFAULT_PING_INTERVAL: Duration = Duration::from_secs(120);
 
 impl<T> OpenApiClient<T>
 where
@@ -67,6 +71,12 @@ impl WebSocketEndpoint {
         self.service_id
     }
 
+    pub fn ping_interval(&self) -> Option<Duration> {
+        self.client_config
+            .as_ref()
+            .and_then(WebSocketClientConfig::ping_interval)
+    }
+
     fn from_payload(payload: WebSocketEndpointPayload) -> Result<Self> {
         let url = Url::parse(&payload.url)?;
         Self::new(url, payload.client_config)
@@ -80,6 +90,20 @@ pub struct WebSocketClientConfig {
     pub reconnect_interval: Option<u64>,
     pub reconnect_nonce: Option<u64>,
     pub ping_interval: Option<u64>,
+}
+
+impl WebSocketClientConfig {
+    pub fn ping_interval(&self) -> Option<Duration> {
+        positive_seconds(self.ping_interval)
+    }
+
+    pub fn reconnect_interval(&self) -> Option<Duration> {
+        positive_seconds(self.reconnect_interval)
+    }
+
+    pub fn reconnect_nonce(&self) -> Option<Duration> {
+        positive_seconds(self.reconnect_nonce)
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -201,6 +225,23 @@ pub struct WebSocketFrame {
 }
 
 impl WebSocketFrame {
+    pub fn heartbeat_ping(service_id: i32) -> Self {
+        Self {
+            seq_id: 0,
+            log_id: 0,
+            service: service_id,
+            method: WebSocketFrameMethod::Control as i32,
+            headers: vec![WebSocketHeader::new(
+                HEADER_TYPE,
+                WebSocketMessageType::Ping.as_str(),
+            )],
+            payload_encoding: None,
+            payload_type: None,
+            payload: None,
+            log_id_new: None,
+        }
+    }
+
     pub fn header(&self, key: &str) -> Option<&str> {
         self.headers
             .iter()
@@ -530,6 +571,7 @@ pub struct WebSocketConnection {
     url: Url,
     device_id: String,
     service_id: i32,
+    client_config: Option<WebSocketClientConfig>,
     stream: tokio_tungstenite::WebSocketStream<
         tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
     >,
@@ -547,6 +589,7 @@ impl WebSocketConnection {
             url: endpoint.url().clone(),
             device_id: endpoint.device_id().to_owned(),
             service_id: endpoint.service_id(),
+            client_config: endpoint.client_config().copied(),
             stream,
         })
     }
@@ -561,6 +604,14 @@ impl WebSocketConnection {
 
     pub fn service_id(&self) -> i32 {
         self.service_id
+    }
+
+    pub fn client_config(&self) -> Option<&WebSocketClientConfig> {
+        self.client_config.as_ref()
+    }
+
+    pub fn heartbeat_interval(&self) -> Duration {
+        effective_ping_interval(self.client_config.as_ref())
     }
 
     pub async fn next_frame(&mut self) -> Result<Option<WebSocketFrame>> {
@@ -588,12 +639,30 @@ impl WebSocketConnection {
     }
 
     pub async fn next_event(&mut self) -> Result<Option<(WebSocketEventFrame, WebSocketEvent)>> {
-        while let Some(frame) = self.next_frame().await? {
-            if let Some(event) = frame.into_event()? {
-                return Ok(Some(event));
+        loop {
+            match self.next_event_or_activity().await? {
+                Some(WebSocketConnectionItem::Event(frame, event)) => {
+                    return Ok(Some((frame, *event)));
+                }
+                Some(WebSocketConnectionItem::Activity) => {}
+                None => return Ok(None),
             }
         }
-        Ok(None)
+    }
+
+    pub(crate) async fn next_event_or_activity(
+        &mut self,
+    ) -> Result<Option<WebSocketConnectionItem>> {
+        let Some(frame) = self.next_frame().await? else {
+            return Ok(None);
+        };
+        if self.handle_control_frame(&frame)? {
+            return Ok(Some(WebSocketConnectionItem::Activity));
+        }
+        if let Some((frame, event)) = frame.into_event()? {
+            return Ok(Some(WebSocketConnectionItem::Event(frame, Box::new(event))));
+        }
+        Ok(Some(WebSocketConnectionItem::Activity))
     }
 
     pub async fn send_frame(&mut self, frame: &WebSocketFrame) -> Result<()> {
@@ -604,6 +673,11 @@ impl WebSocketConnection {
             .send(Message::Binary(frame.encode_to_vec().into()))
             .await
             .map_err(|error| Error::Transport(format!("websocket send failed: {error}")))
+    }
+
+    pub async fn send_heartbeat(&mut self) -> Result<()> {
+        let frame = WebSocketFrame::heartbeat_ping(self.service_id);
+        self.send_frame(&frame).await
     }
 
     pub async fn ack_event(
@@ -621,6 +695,61 @@ impl WebSocketConnection {
             .await
             .map_err(|error| Error::Transport(format!("websocket close failed: {error}")))
     }
+
+    fn handle_control_frame(&mut self, frame: &WebSocketFrame) -> Result<bool> {
+        if frame.method() != Some(WebSocketFrameMethod::Control) {
+            return Ok(false);
+        }
+
+        if frame.message_type() == WebSocketMessageType::Pong {
+            self.update_client_config_from_pong(frame)?;
+        }
+        Ok(true)
+    }
+
+    fn update_client_config_from_pong(&mut self, frame: &WebSocketFrame) -> Result<()> {
+        if let Some(config) = client_config_from_pong_frame(frame)? {
+            self.client_config = Some(config);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "websocket")]
+pub(crate) enum WebSocketConnectionItem {
+    Event(WebSocketEventFrame, Box<WebSocketEvent>),
+    Activity,
+}
+
+fn positive_seconds(value: Option<u64>) -> Option<Duration> {
+    value.and_then(|seconds| (seconds > 0).then_some(Duration::from_secs(seconds)))
+}
+
+#[cfg(any(feature = "websocket", test))]
+fn effective_ping_interval(config: Option<&WebSocketClientConfig>) -> Duration {
+    config
+        .and_then(WebSocketClientConfig::ping_interval)
+        .unwrap_or(DEFAULT_PING_INTERVAL)
+}
+
+#[cfg(any(feature = "websocket", test))]
+fn client_config_from_pong_frame(frame: &WebSocketFrame) -> Result<Option<WebSocketClientConfig>> {
+    if frame.method() != Some(WebSocketFrameMethod::Control)
+        || frame.message_type() != WebSocketMessageType::Pong
+    {
+        return Ok(None);
+    }
+
+    let Some(payload) = frame
+        .payload
+        .as_deref()
+        .filter(|payload| !payload.is_empty())
+    else {
+        return Ok(None);
+    };
+    serde_json::from_slice::<WebSocketClientConfig>(payload)
+        .map(Some)
+        .map_err(Into::into)
 }
 
 fn query_value(url: &Url, key: &str) -> Option<String> {
@@ -708,6 +837,7 @@ mod tests {
                 ping_interval: Some(30),
             })
         );
+        assert_eq!(endpoint.ping_interval(), Some(Duration::from_secs(30)));
 
         let calls = transport.calls();
         assert_eq!(calls.len(), 1);
@@ -723,6 +853,23 @@ mod tests {
             calls[0].headers.get("content-type").map(String::as_str),
             Some("application/json")
         );
+    }
+
+    #[test]
+    fn websocket_client_config_ignores_empty_ping_interval() {
+        let config = WebSocketClientConfig {
+            reconnect_count: None,
+            reconnect_interval: None,
+            reconnect_nonce: None,
+            ping_interval: Some(0),
+        };
+
+        assert_eq!(config.ping_interval(), None);
+    }
+
+    #[test]
+    fn websocket_effective_ping_interval_defaults_to_two_minutes() {
+        assert_eq!(effective_ping_interval(None), Duration::from_secs(120));
     }
 
     #[test]
@@ -820,6 +967,63 @@ mod tests {
         };
 
         assert!(frame.event().expect("event result").is_none());
+    }
+
+    #[test]
+    fn websocket_frame_builds_heartbeat_ping() {
+        let frame = WebSocketFrame::heartbeat_ping(42);
+
+        assert_eq!(frame.seq_id, 0);
+        assert_eq!(frame.log_id, 0);
+        assert_eq!(frame.service, 42);
+        assert_eq!(frame.method(), Some(WebSocketFrameMethod::Control));
+        assert_eq!(frame.message_type(), WebSocketMessageType::Ping);
+        assert_eq!(frame.header("type"), Some("ping"));
+        assert_eq!(frame.payload, None);
+    }
+
+    #[test]
+    fn websocket_pong_frame_can_carry_client_config() {
+        let frame = WebSocketFrame {
+            seq_id: 0,
+            log_id: 0,
+            service: 42,
+            method: WebSocketFrameMethod::Control as i32,
+            headers: vec![WebSocketHeader::new("type", "pong")],
+            payload_encoding: None,
+            payload_type: None,
+            payload: Some(
+                br#"{"ReconnectCount":3,"ReconnectInterval":10,"ReconnectNonce":2,"PingInterval":30}"#
+                    .to_vec(),
+            ),
+            log_id_new: None,
+        };
+
+        let config = client_config_from_pong_frame(&frame)
+            .expect("pong config")
+            .expect("config");
+
+        assert_eq!(
+            config,
+            WebSocketClientConfig {
+                reconnect_count: Some(3),
+                reconnect_interval: Some(10),
+                reconnect_nonce: Some(2),
+                ping_interval: Some(30),
+            }
+        );
+    }
+
+    #[test]
+    fn websocket_empty_pong_frame_has_no_client_config() {
+        let frame = WebSocketFrame {
+            method: WebSocketFrameMethod::Control as i32,
+            headers: vec![WebSocketHeader::new("type", "pong")],
+            payload: None,
+            ..event_frame()
+        };
+
+        assert_eq!(client_config_from_pong_frame(&frame).expect("pong"), None);
     }
 
     #[test]

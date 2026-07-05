@@ -1,23 +1,55 @@
 use std::fmt;
 use std::future::Future;
+use std::time::Duration;
 use std::time::Instant;
 
 use super::ChannelEvent;
 use crate::Result;
 use crate::lark_openapi::{
-    WebSocketConnection, WebSocketEvent, WebSocketEventAck, WebSocketEventFrame,
+    WebSocketClientConfig, WebSocketConnection, WebSocketEvent, WebSocketEventAck,
+    WebSocketEventFrame,
 };
+
+pub enum EventConnectionItem {
+    Event(WebSocketEventFrame, Box<WebSocketEvent>),
+    Activity,
+    Closed,
+}
 
 pub trait EventConnection {
     fn next_websocket_event(
         &mut self,
     ) -> impl Future<Output = Result<Option<(WebSocketEventFrame, WebSocketEvent)>>> + Send;
 
+    fn next_websocket_item(&mut self) -> impl Future<Output = Result<EventConnectionItem>> + Send
+    where
+        Self: Send,
+    {
+        async {
+            Ok(match self.next_websocket_event().await? {
+                Some((frame, event)) => EventConnectionItem::Event(frame, Box::new(event)),
+                None => EventConnectionItem::Closed,
+            })
+        }
+    }
+
     fn ack_websocket_event(
         &mut self,
         frame: &WebSocketEventFrame,
         ack: WebSocketEventAck,
     ) -> impl Future<Output = Result<()>> + Send;
+
+    fn heartbeat_interval(&self) -> Option<Duration> {
+        None
+    }
+
+    fn websocket_client_config(&self) -> Option<WebSocketClientConfig> {
+        None
+    }
+
+    fn send_heartbeat(&mut self) -> impl Future<Output = Result<()>> + Send {
+        std::future::ready(Ok(()))
+    }
 }
 
 impl EventConnection for WebSocketConnection {
@@ -27,12 +59,36 @@ impl EventConnection for WebSocketConnection {
         self.next_event().await
     }
 
+    async fn next_websocket_item(&mut self) -> Result<EventConnectionItem> {
+        Ok(match self.next_event_or_activity().await? {
+            Some(crate::lark_openapi::WebSocketConnectionItem::Event(frame, event)) => {
+                EventConnectionItem::Event(frame, event)
+            }
+            Some(crate::lark_openapi::WebSocketConnectionItem::Activity) => {
+                EventConnectionItem::Activity
+            }
+            None => EventConnectionItem::Closed,
+        })
+    }
+
     async fn ack_websocket_event(
         &mut self,
         frame: &WebSocketEventFrame,
         ack: WebSocketEventAck,
     ) -> Result<()> {
         self.ack_event(frame, ack).await
+    }
+
+    fn heartbeat_interval(&self) -> Option<Duration> {
+        Some(self.heartbeat_interval())
+    }
+
+    fn websocket_client_config(&self) -> Option<WebSocketClientConfig> {
+        self.client_config().copied()
+    }
+
+    async fn send_heartbeat(&mut self) -> Result<()> {
+        WebSocketConnection::send_heartbeat(self).await
     }
 }
 
@@ -104,7 +160,19 @@ where
             })
             .await?;
         let event = ReceivedEvent::from_parsed_websocket_event(frame.clone(), event, channel_event);
-        let ack = handler(event).await?;
+        let ack = match handler(event).await {
+            Ok(ack) => ack,
+            Err(error) => {
+                self.connection
+                    .ack_websocket_event(
+                        &frame,
+                        WebSocketEventAck::internal_server_error()
+                            .with_biz_rt(elapsed_millis(started)),
+                    )
+                    .await?;
+                return Err(error);
+            }
+        };
         let ack = if ack.biz_rt().is_none() {
             ack.with_biz_rt(elapsed_millis(started))
         } else {
@@ -287,7 +355,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handle_next_event_does_not_ack_handler_errors() {
+    async fn handle_next_event_acks_handler_errors_as_internal_server_error() {
         let mut consumer = EventConsumer::new(fake_connection_with_payload(message_payload()));
 
         let error = consumer
@@ -296,7 +364,9 @@ mod tests {
             .expect_err("handler error");
 
         assert!(matches!(error, Error::Validation(message) if message == "handler failed"));
-        assert!(consumer.connection().acks.is_empty());
+        assert_eq!(consumer.connection().acks.len(), 1);
+        assert_eq!(consumer.connection().acks[0].code(), 500);
+        assert!(consumer.connection().acks[0].biz_rt().is_some());
     }
 
     #[tokio::test]

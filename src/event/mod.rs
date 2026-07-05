@@ -12,10 +12,10 @@ mod consumer;
 mod r#loop;
 
 #[cfg(feature = "websocket")]
-pub use consumer::{EventConnection, EventConsumer, ReceivedEvent};
+pub use consumer::{EventConnection, EventConnectionItem, EventConsumer, ReceivedEvent};
 #[cfg(feature = "websocket")]
 pub use r#loop::{
-    EventLoop, EventLoopExit, EventLoopOptions, EventStreamConnector,
+    EventLoop, EventLoopExit, EventLoopOptions, EventReconnectLimit, EventStreamConnector,
     OpenApiWebSocketEventConnector, WebSocketEndpointConnector,
 };
 

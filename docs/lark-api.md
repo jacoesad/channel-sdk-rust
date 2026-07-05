@@ -50,6 +50,14 @@ Event data frames can be parsed with `WebSocketFrame::event` or received with `W
 - `seq`
 - raw payload bytes
 
+The current high-level event helpers expect single-packet events. Frames whose
+protocol metadata reports `sum > 1` are not automatically reassembled yet; the
+raw `sum` and `seq` values are exposed so future Channel event-layer work can
+add packet buffering and reassembly without changing the wire model.
+This limitation only affects long-connection receive paths, including large
+message events or card action callbacks. HTTP OpenAPI calls such as sending
+messages or cards do not depend on packet reassembly.
+
 `WebSocketFrame::event_ack_frame`, `WebSocketEventFrame::event_ack_frame`, and `WebSocketConnection::ack_event` build and send the ACK frame for a handled event. The ACK payload follows the official SDK shape:
 
 - success: `{"code":200}`
@@ -57,9 +65,13 @@ Event data frames can be parsed with `WebSocketFrame::event` or received with `W
 - optional `data` is a caller-provided base64 string
 - optional `biz_rt` is sent as the `biz_rt` frame header
 
-The higher-level `EventConsumer` wraps a single `WebSocketConnection` and combines receive, Lark event parsing, handler execution, and ACK sending. `handle_next_event` adds a `biz_rt` ACK header when the handler returns an ACK without one. If event parsing fails after a WebSocket event frame has been received, `EventConsumer` attempts to send an internal-server-error ACK before returning. Handler errors are not ACKed so the platform can retry delivery.
+The higher-level `EventConsumer` wraps a single `WebSocketConnection` and combines receive, Lark event parsing, handler execution, and ACK sending. `handle_next_event` adds a `biz_rt` ACK header when the handler returns an ACK without one. If event parsing fails after a WebSocket event frame has been received, `EventConsumer` attempts to send an internal-server-error ACK before returning. Handler errors are also ACKed as internal-server-error before the original handler error is returned to the caller.
 
-`EventLoop` uses the same receive, parse, handler, and ACK semantics with an `EventStreamConnector` to keep consuming events across clean closes and transport errors. The built-in `OpenApiWebSocketEventConnector` requests a fresh WebSocket endpoint before each connection attempt. If the reconnect limit is reached after clean closes, the loop returns `EventLoopExit::ReconnectLimitReached`; if the final retryable failure is a transport error, the loop returns that error. WebSocket ping frames are answered by `WebSocketConnection`; packet reassembly for `sum > 1` and timer-driven application heartbeat remain later Channel event-layer work.
+`EventLoop` uses the same receive, parse, handler, and ACK semantics with an `EventStreamConnector` to keep consuming events across clean closes and transport errors. The built-in `OpenApiWebSocketEventConnector` requests a fresh WebSocket endpoint before each connection attempt. If the effective reconnect limit is reached after clean closes, the loop returns `EventLoopExit::ReconnectLimitReached`; if the final retryable failure is a transport error, the loop returns that error. By default, the loop follows endpoint `ClientConfig` values for reconnect policy: `ReconnectCount=-1` means unlimited retries, non-negative `ReconnectCount` values are finite retry counts, and `ReconnectInterval`/`ReconnectNonce` are used only when they are positive durations. Explicit local reconnect options disable server-provided reconnect policy unless `with_server_reconnect_config(true)` is used.
+
+WebSocket ping frames are answered by `WebSocketConnection`, and the event loop sends the official application-level heartbeat ping at the endpoint-provided `PingInterval` while waiting for the next event. If the endpoint omits a positive `PingInterval`, the connection falls back to 120 seconds. Heartbeat send failures and optional heartbeat liveness timeouts during receive waits are treated as reconnectable transport errors. User handlers are awaited without driving connection heartbeats; handlers should return promptly or spawn long-running work outside the event loop. A future runtime should split receive, heartbeat, reconnect, and serialized writes so handler work and connection heartbeats can run independently.
+
+`WebSocketFrame::heartbeat_ping` builds the official heartbeat control frame (`method=Control`, `type=ping`, `SeqID=0`, `LogID=0`, and the endpoint `service_id`). `WebSocketConnection` preserves the endpoint `ClientConfig`, exposes the positive `PingInterval` as a `Duration`, and applies `ClientConfig` updates carried by application-level `pong` control frames. Application-level control frames are surfaced to the event loop as activity so heartbeat liveness checks can be cleared without waiting for a data event. Packet reassembly for `sum > 1` remains later Channel event-layer work.
 
 ## Event Mapping
 
@@ -115,6 +127,6 @@ The current subset intentionally does not expose:
 - `receive_id_type=union_id`, `user_id`, or `email`
 - user-token based message create/reply
 - full response message models beyond `data.message_id`
-- packet reassembly for long-connection events split across multiple frames
-- automatic event dispatch and timer-driven heartbeat
+- packet reassembly for large long-connection events or callbacks split across multiple frames
+- automatic event dispatch beyond the current `EventConsumer` and `EventLoop` handlers
 - a complete Lark/Feishu OpenAPI surface
