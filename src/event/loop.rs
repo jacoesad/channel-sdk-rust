@@ -7,9 +7,11 @@ use crate::lark_openapi::{
 };
 use crate::{Error, Result};
 
-use super::consumer::parse_channel_event_or_ack_parse_error;
 use super::reassembly::EventPacketReassemblyOptions;
-use super::runtime::{EventRuntimeReceiveOptions, EventRuntimeReceiver};
+use super::runtime::{
+    EventRuntimeDispatchOutcome, EventRuntimeDispatcher, EventRuntimeReceiveOptions,
+    EventRuntimeReceiver, is_reconnectable,
+};
 use super::{EventConnection, ReceivedEvent};
 
 pub trait EventStreamConnector {
@@ -293,10 +295,6 @@ where
     }
 }
 
-fn is_reconnectable(error: &Error) -> bool {
-    matches!(error, Error::Transport(_))
-}
-
 enum ConnectionExit {
     Closed,
     ReconnectableError(Error),
@@ -315,6 +313,7 @@ where
     let receive_options =
         EventRuntimeReceiveOptions::new(options.heartbeat_timeout(), options.reassembly_options());
     let mut receiver = EventRuntimeReceiver::new(connection, receive_options);
+    let mut dispatcher = EventRuntimeDispatcher::new();
 
     loop {
         let Some((frame, event)) = (match receiver.next_event(connection).await {
@@ -327,52 +326,14 @@ where
             return Ok(ConnectionExit::Closed);
         };
 
-        let started = std::time::Instant::now();
-        let channel_event =
-            match parse_channel_event_or_ack_parse_error(connection, &frame, &event, || {
-                WebSocketEventAck::internal_server_error().with_biz_rt(elapsed_millis(started))
-            })
-            .await
-            {
-                Ok(channel_event) => channel_event,
-                Err(error) if is_reconnectable(&error) => {
-                    return Ok(ConnectionExit::ReconnectableError(error));
-                }
-                Err(error) => return Err(error),
-            };
-        let received =
-            ReceivedEvent::from_parsed_websocket_event(frame.clone(), event, channel_event);
-        let ack = match handler(received).await {
-            Ok(ack) => ack,
-            Err(error) => {
-                if let Err(ack_error) = connection
-                    .ack_websocket_event(
-                        &frame,
-                        WebSocketEventAck::internal_server_error()
-                            .with_biz_rt(elapsed_millis(started)),
-                    )
-                    .await
-                {
-                    return if is_reconnectable(&ack_error) {
-                        Ok(ConnectionExit::ReconnectableError(ack_error))
-                    } else {
-                        Err(ack_error)
-                    };
-                }
-                return Err(error);
+        match dispatcher
+            .dispatch_event(connection, handler, frame, event)
+            .await?
+        {
+            EventRuntimeDispatchOutcome::Handled => {}
+            EventRuntimeDispatchOutcome::ReconnectableError(error) => {
+                return Ok(ConnectionExit::ReconnectableError(error));
             }
-        };
-        let ack = if ack.biz_rt().is_none() {
-            ack.with_biz_rt(elapsed_millis(started))
-        } else {
-            ack
-        };
-        if let Err(error) = connection.ack_websocket_event(&frame, ack).await {
-            return if is_reconnectable(&error) {
-                Ok(ConnectionExit::ReconnectableError(error))
-            } else {
-                Err(error)
-            };
         }
     }
 }
@@ -440,10 +401,6 @@ fn reconnect_jitter(max: Duration) -> Duration {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     Duration::from_millis(u64::from(now.subsec_nanos()) % max_millis.saturating_add(1))
-}
-
-fn elapsed_millis(started: std::time::Instant) -> u64 {
-    started.elapsed().as_millis().min(u64::MAX as u128) as u64
 }
 
 #[cfg(test)]

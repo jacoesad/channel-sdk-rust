@@ -1,11 +1,93 @@
-use std::time::Duration;
+use std::future::Future;
+use std::time::{Duration, Instant};
 
 use tokio::time::Instant as TokioInstant;
 
-use super::consumer::{EventConnection, EventConnectionItem};
+use super::consumer::{
+    EventConnection, EventConnectionItem, ReceivedEvent, parse_channel_event_or_ack_parse_error,
+};
 use super::reassembly::{EventPacketReassembler, EventPacketReassemblyOptions};
 use crate::lark_openapi::{WebSocketEvent, WebSocketEventAck, WebSocketEventFrame};
 use crate::{Error, Result};
+
+pub(super) fn is_reconnectable(error: &Error) -> bool {
+    matches!(error, Error::Transport(_))
+}
+
+pub(super) enum EventRuntimeDispatchOutcome {
+    Handled,
+    ReconnectableError(Error),
+}
+
+pub(super) struct EventRuntimeDispatcher;
+
+impl EventRuntimeDispatcher {
+    pub(super) fn new() -> Self {
+        Self
+    }
+
+    pub(super) async fn dispatch_event<C, H, F>(
+        &mut self,
+        connection: &mut C,
+        handler: &mut H,
+        frame: WebSocketEventFrame,
+        event: WebSocketEvent,
+    ) -> Result<EventRuntimeDispatchOutcome>
+    where
+        C: EventConnection,
+        H: FnMut(ReceivedEvent) -> F,
+        F: Future<Output = Result<WebSocketEventAck>> + Send,
+    {
+        let started = Instant::now();
+        let channel_event =
+            match parse_channel_event_or_ack_parse_error(connection, &frame, &event, || {
+                WebSocketEventAck::internal_server_error().with_biz_rt(elapsed_millis(started))
+            })
+            .await
+            {
+                Ok(channel_event) => channel_event,
+                Err(error) if is_reconnectable(&error) => {
+                    return Ok(EventRuntimeDispatchOutcome::ReconnectableError(error));
+                }
+                Err(error) => return Err(error),
+            };
+        let received =
+            ReceivedEvent::from_parsed_websocket_event(frame.clone(), event, channel_event);
+        let ack = match handler(received).await {
+            Ok(ack) => ack,
+            Err(error) => {
+                if let Err(ack_error) = connection
+                    .ack_websocket_event(
+                        &frame,
+                        WebSocketEventAck::internal_server_error()
+                            .with_biz_rt(elapsed_millis(started)),
+                    )
+                    .await
+                {
+                    return if is_reconnectable(&ack_error) {
+                        Ok(EventRuntimeDispatchOutcome::ReconnectableError(ack_error))
+                    } else {
+                        Err(ack_error)
+                    };
+                }
+                return Err(error);
+            }
+        };
+        let ack = if ack.biz_rt().is_none() {
+            ack.with_biz_rt(elapsed_millis(started))
+        } else {
+            ack
+        };
+        if let Err(error) = connection.ack_websocket_event(&frame, ack).await {
+            return if is_reconnectable(&error) {
+                Ok(EventRuntimeDispatchOutcome::ReconnectableError(error))
+            } else {
+                Err(error)
+            };
+        }
+        Ok(EventRuntimeDispatchOutcome::Handled)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct EventRuntimeReceiveOptions {
@@ -187,4 +269,8 @@ impl HeartbeatDeadline {
             Self::Heartbeat(instant) | Self::Liveness(instant) => *instant,
         }
     }
+}
+
+fn elapsed_millis(started: Instant) -> u64 {
+    started.elapsed().as_millis().min(u64::MAX as u128) as u64
 }
