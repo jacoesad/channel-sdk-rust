@@ -14,7 +14,7 @@ Milestone 0 established the repository and public crate shape:
 - A `ChannelClient` trait for future transport implementations
 - CI for formatting, clippy, and tests
 
-The project has completed Milestone 2 with outbound text messaging, replies, idempotency options, and the first high-level message sender. Milestone 3 has started with WebSocket endpoint discovery, a raw connection foundation, event frame parsing, explicit event acknowledgement, inbound message parsing, card action callback parsing, a single-connection event consumer, a reconnecting event loop, timer-driven application heartbeat, split-packet event reassembly, a minimal echo bot example, and the first internal runtime boundaries for receive/reassembly, dispatch, and protocol writes. It still does not implement full message normalization, card helpers, or media transfer yet.
+The project has completed Milestone 3 with WebSocket endpoint discovery, a raw connection foundation, event frame parsing, explicit event acknowledgement, inbound message parsing, card action callback parsing, a single-connection event consumer, a reconnecting event loop, timer-driven application heartbeat, split-packet event reassembly, a minimal echo bot example, and the first internal runtime boundaries for receive/reassembly, dispatch, and protocol writes. It still does not implement full message normalization, card helpers, or media transfer yet.
 
 ## Architecture Boundary
 
@@ -87,10 +87,10 @@ Milestone 0 is complete when the scaffold is reviewable and the repository has e
 - Single-connection event consumer for receive, parse, handler, and ACK (#15)
 - Basic reconnecting event loop for clean closes and transport errors (#16)
 - Card action events (#17)
-- Timer-driven heartbeat and reconnect refinements
-- Split-packet reassembly for large long-connection events and callbacks with `sum > 1`
+- Timer-driven heartbeat and reconnect refinements (#19)
+- Split-packet reassembly for large long-connection events and callbacks with `sum > 1` (#21)
 - Minimal echo bot example (#20)
-- WebSocket runtime refactor with internal receive/reassembly, dispatch/ACK, and protocol writer boundaries while heartbeat and reconnect remain loop-orchestrated
+- WebSocket runtime refactor with internal receive/reassembly, dispatch/ACK, and protocol writer boundaries while heartbeat and reconnect remain loop-orchestrated (#22, #23)
 
 ## Milestone 4: Message Normalization
 
