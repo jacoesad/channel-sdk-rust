@@ -10,6 +10,7 @@ use crate::lark_openapi::{
 use crate::{Error, Result};
 
 use super::consumer::parse_channel_event_or_ack_parse_error;
+use super::reassembly::{EventPacketReassembler, EventPacketReassemblyOptions};
 use super::{EventConnection, EventConnectionItem, ReceivedEvent};
 
 pub trait EventStreamConnector {
@@ -103,6 +104,7 @@ pub struct EventLoopOptions {
     reconnect_delay: Duration,
     use_server_reconnect_config: bool,
     heartbeat_timeout: Option<Duration>,
+    reassembly_options: EventPacketReassemblyOptions,
 }
 
 impl Default for EventLoopOptions {
@@ -112,6 +114,7 @@ impl Default for EventLoopOptions {
             reconnect_delay: Duration::from_secs(1),
             use_server_reconnect_config: true,
             heartbeat_timeout: None,
+            reassembly_options: EventPacketReassemblyOptions::default(),
         }
     }
 }
@@ -144,6 +147,10 @@ impl EventLoopOptions {
         self.heartbeat_timeout
     }
 
+    pub fn reassembly_options(&self) -> EventPacketReassemblyOptions {
+        self.reassembly_options
+    }
+
     pub fn with_max_reconnects(mut self, max_reconnects: usize) -> Self {
         self.reconnect_limit = EventReconnectLimit::Limited(max_reconnects);
         self.use_server_reconnect_config = false;
@@ -169,6 +176,14 @@ impl EventLoopOptions {
 
     pub fn with_heartbeat_timeout(mut self, heartbeat_timeout: Option<Duration>) -> Self {
         self.heartbeat_timeout = heartbeat_timeout.filter(|timeout| !timeout.is_zero());
+        self
+    }
+
+    pub fn with_reassembly_options(
+        mut self,
+        reassembly_options: EventPacketReassemblyOptions,
+    ) -> Self {
+        self.reassembly_options = reassembly_options;
         self
     }
 }
@@ -299,12 +314,14 @@ where
     F: Future<Output = Result<WebSocketEventAck>> + Send,
 {
     let mut heartbeat = HeartbeatSchedule::new(connection.heartbeat_interval());
+    let mut reassembler = EventPacketReassembler::new(options.reassembly_options());
 
     loop {
-        let Some((frame, event)) = (match next_websocket_event_with_heartbeat(
+        let Some((frame, event)) = (match next_reassembled_websocket_event_with_heartbeat(
             connection,
             &mut heartbeat,
             options.heartbeat_timeout(),
+            &mut reassembler,
         )
         .await
         {
@@ -552,6 +569,39 @@ where
     }
 }
 
+async fn next_reassembled_websocket_event_with_heartbeat<C>(
+    connection: &mut C,
+    heartbeat: &mut HeartbeatSchedule,
+    heartbeat_timeout: Option<Duration>,
+    reassembler: &mut EventPacketReassembler,
+) -> Result<
+    Option<(
+        crate::lark_openapi::WebSocketEventFrame,
+        crate::lark_openapi::WebSocketEvent,
+    )>,
+>
+where
+    C: EventConnection + Send,
+{
+    loop {
+        let Some((frame, event)) =
+            next_websocket_event_with_heartbeat(connection, heartbeat, heartbeat_timeout).await?
+        else {
+            return Ok(None);
+        };
+        match reassembler.push(frame.clone(), event) {
+            Ok(Some(event)) => return Ok(Some(event)),
+            Ok(None) => {}
+            Err(error) => {
+                connection
+                    .ack_websocket_event(&frame, WebSocketEventAck::internal_server_error())
+                    .await?;
+                return Err(error);
+            }
+        }
+    }
+}
+
 fn elapsed_millis(started: std::time::Instant) -> u64 {
     started.elapsed().as_millis().min(u64::MAX as u128) as u64
 }
@@ -565,6 +615,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::event::ChannelEvent;
     use crate::lark_openapi::{
         WebSocketClientConfig, WebSocketEvent, WebSocketEventFrame, WebSocketFrame,
         WebSocketFrameMethod, WebSocketHeader,
@@ -682,6 +733,66 @@ mod tests {
         assert_eq!(event_loop.connector().attempts, 2);
         assert_eq!(handled.load(Ordering::SeqCst), 2);
         assert_eq!(acks.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn run_reassembles_split_packets_before_handler_and_ack() {
+        let handled = Arc::new(AtomicUsize::new(0));
+        let acks = Arc::new(AtomicUsize::new(0));
+        let payload = message_payload("split");
+        let payload_len = payload.len();
+        let split_at = payload.len() / 2;
+        let mut connector = FakeConnector::default();
+        connector.connections.push_back(fake_connection(
+            acks.clone(),
+            vec![
+                Ok(Some(fake_event_packet(
+                    "split",
+                    2,
+                    1,
+                    payload[split_at..].to_vec(),
+                ))),
+                Ok(Some(fake_event_packet(
+                    "split",
+                    2,
+                    0,
+                    payload[..split_at].to_vec(),
+                ))),
+            ],
+        ));
+
+        let options = EventLoopOptions::new()
+            .with_max_reconnects(0)
+            .with_reconnect_delay(Duration::ZERO);
+        let mut event_loop = EventLoop::with_options(connector, options);
+
+        let exit = event_loop
+            .run({
+                let handled = handled.clone();
+                move |event| {
+                    let handled = handled.clone();
+                    async move {
+                        handled.fetch_add(1, Ordering::SeqCst);
+                        assert_eq!(event.payload_len, payload_len);
+                        assert_eq!(event.sum, 2);
+                        assert_eq!(event.seq, 0);
+                        match event.event {
+                            ChannelEvent::Message(message) => {
+                                assert_eq!(message.message_id, "om_split");
+                                assert_eq!(message.text, "split");
+                            }
+                            other => panic!("expected message event, got {other:?}"),
+                        }
+                        Ok(WebSocketEventAck::ok())
+                    }
+                }
+            })
+            .await
+            .expect("event loop exits");
+
+        assert_eq!(exit, EventLoopExit::ReconnectLimitReached);
+        assert_eq!(handled.load(Ordering::SeqCst), 1);
+        assert_eq!(acks.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
@@ -1255,6 +1366,15 @@ mod tests {
         text: &str,
         payload: Vec<u8>,
     ) -> (WebSocketEventFrame, WebSocketEvent) {
+        fake_event_packet(text, 1, 1, payload)
+    }
+
+    fn fake_event_packet(
+        text: &str,
+        sum: u32,
+        seq: u32,
+        payload: Vec<u8>,
+    ) -> (WebSocketEventFrame, WebSocketEvent) {
         let frame = WebSocketFrame {
             seq_id: 1,
             log_id: 2,
@@ -1264,8 +1384,8 @@ mod tests {
                 WebSocketHeader::new("type", "event"),
                 WebSocketHeader::new("message_id", format!("om_{text}")),
                 WebSocketHeader::new("trace_id", format!("trace_{text}")),
-                WebSocketHeader::new("sum", "1"),
-                WebSocketHeader::new("seq", "1"),
+                WebSocketHeader::new("sum", sum.to_string()),
+                WebSocketHeader::new("seq", seq.to_string()),
             ],
             payload_encoding: None,
             payload_type: None,

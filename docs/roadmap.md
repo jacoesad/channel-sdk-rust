@@ -14,7 +14,7 @@ Milestone 0 established the repository and public crate shape:
 - A `ChannelClient` trait for future transport implementations
 - CI for formatting, clippy, and tests
 
-The project has completed Milestone 2 with outbound text messaging, replies, idempotency options, and the first high-level message sender. Milestone 3 has started with WebSocket endpoint discovery, a raw connection foundation, event frame parsing, explicit event acknowledgement, inbound message parsing, card action callback parsing, a single-connection event consumer, a reconnecting event loop, timer-driven application heartbeat, and a minimal echo bot example. It still does not implement full message normalization, card helpers, or media transfer yet.
+The project has completed Milestone 2 with outbound text messaging, replies, idempotency options, and the first high-level message sender. Milestone 3 has started with WebSocket endpoint discovery, a raw connection foundation, event frame parsing, explicit event acknowledgement, inbound message parsing, card action callback parsing, a single-connection event consumer, a reconnecting event loop, timer-driven application heartbeat, split-packet event reassembly, and a minimal echo bot example. It still does not implement full message normalization, card helpers, or media transfer yet.
 
 ## Architecture Boundary
 
@@ -88,9 +88,9 @@ Milestone 0 is complete when the scaffold is reviewable and the repository has e
 - Basic reconnecting event loop for clean closes and transport errors (#16)
 - Card action events (#17)
 - Timer-driven heartbeat and reconnect refinements
-- WebSocket runtime refactor with separate receive, heartbeat, reconnect, and writer responsibilities
 - Split-packet reassembly for large long-connection events and callbacks with `sum > 1`
-- Minimal echo bot example
+- Minimal echo bot example (#20)
+- WebSocket runtime refactor with separate receive, heartbeat, reconnect, and writer responsibilities
 
 ## Milestone 4: Message Normalization
 
@@ -105,7 +105,7 @@ Milestone 0 is complete when the scaffold is reviewable and the repository has e
 - Simple Markdown/text conversion into Feishu/Lark rich message content
 - Structured mention and link helpers where supported by Lark/Feishu message formats
 - Card creation and update helpers
-- Card callback handling that depends on split-packet reassembly for large payloads
+- Card callback response and update helpers
 - Markdown streaming reply helper
 - Update throttling for long-running agent output
 - Continuation behavior for long messages

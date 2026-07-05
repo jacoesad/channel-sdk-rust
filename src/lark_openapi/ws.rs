@@ -476,6 +476,12 @@ impl WebSocketEvent {
     pub fn log_id_new(&self) -> Option<&str> {
         self.log_id_new.as_deref()
     }
+
+    #[cfg(feature = "websocket")]
+    pub(crate) fn with_payload(mut self, payload: Vec<u8>) -> Self {
+        self.payload = payload;
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
