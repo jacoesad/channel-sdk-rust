@@ -90,7 +90,7 @@ Milestone 0 is complete when the scaffold is reviewable and the repository has e
 - Timer-driven heartbeat and reconnect refinements
 - Split-packet reassembly for large long-connection events and callbacks with `sum > 1`
 - Minimal echo bot example (#20)
-- WebSocket runtime refactor with separate receive, dispatch, writer, heartbeat, and reconnect responsibilities
+- WebSocket runtime refactor with internal receive/reassembly, dispatch/ACK, and protocol writer boundaries while heartbeat and reconnect remain loop-orchestrated
 
 ## Milestone 4: Message Normalization
 
