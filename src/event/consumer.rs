@@ -4,7 +4,8 @@ use std::time::Duration;
 use std::time::Instant;
 
 use super::ChannelEvent;
-use super::reassembly::{EventPacketReassembler, EventPacketReassemblyOptions};
+use super::consumer_runtime::EventConsumerRuntime;
+use super::reassembly::EventPacketReassemblyOptions;
 use crate::Result;
 use crate::lark_openapi::{
     WebSocketClientConfig, WebSocketConnection, WebSocketEvent, WebSocketEventAck,
@@ -95,7 +96,7 @@ impl EventConnection for WebSocketConnection {
 
 pub struct EventConsumer<C> {
     connection: C,
-    reassembler: EventPacketReassembler,
+    runtime: EventConsumerRuntime,
 }
 
 impl<C> EventConsumer<C> {
@@ -109,7 +110,7 @@ impl<C> EventConsumer<C> {
     ) -> Self {
         Self {
             connection,
-            reassembler: EventPacketReassembler::new(reassembly_options),
+            runtime: EventConsumerRuntime::new(reassembly_options),
         }
     }
 
@@ -131,18 +132,22 @@ where
     C: EventConnection,
 {
     pub async fn next_event(&mut self) -> Result<Option<ReceivedEvent>> {
-        let Some((frame, event)) =
-            next_reassembled_websocket_event(&mut self.connection, &mut self.reassembler).await?
+        let Some((frame, event)) = self
+            .runtime
+            .next_reassembled_event(&mut self.connection)
+            .await?
         else {
             return Ok(None);
         };
-        let channel_event = match parse_channel_event_or_ack_parse_error(
-            &mut self.connection,
-            &frame,
-            &event,
-            WebSocketEventAck::internal_server_error,
-        )
-        .await
+        let channel_event = match self
+            .runtime
+            .parse_or_ack_parse_error(
+                &mut self.connection,
+                &frame,
+                &event,
+                WebSocketEventAck::internal_server_error,
+            )
+            .await
         {
             Ok(event) => event,
             Err(error) => return Err(error),
@@ -163,15 +168,18 @@ where
         H: FnOnce(ReceivedEvent) -> F,
         F: Future<Output = Result<WebSocketEventAck>> + Send,
     {
-        let Some((frame, event)) =
-            next_reassembled_websocket_event(&mut self.connection, &mut self.reassembler).await?
+        let Some((frame, event)) = self
+            .runtime
+            .next_reassembled_event(&mut self.connection)
+            .await?
         else {
             return Ok(false);
         };
 
         let started = Instant::now();
-        let channel_event =
-            parse_channel_event_or_ack_parse_error(&mut self.connection, &frame, &event, || {
+        let channel_event = self
+            .runtime
+            .parse_or_ack_parse_error(&mut self.connection, &frame, &event, || {
                 WebSocketEventAck::internal_server_error().with_biz_rt(elapsed_millis(started))
             })
             .await?;
@@ -196,50 +204,6 @@ where
         };
         self.connection.ack_websocket_event(&frame, ack).await?;
         Ok(true)
-    }
-}
-
-pub(super) async fn next_reassembled_websocket_event<C>(
-    connection: &mut C,
-    reassembler: &mut EventPacketReassembler,
-) -> Result<Option<(WebSocketEventFrame, WebSocketEvent)>>
-where
-    C: EventConnection,
-{
-    loop {
-        let Some((frame, event)) = connection.next_websocket_event().await? else {
-            return Ok(None);
-        };
-        match reassembler.push(frame.clone(), event) {
-            Ok(Some(event)) => return Ok(Some(event)),
-            Ok(None) => {}
-            Err(error) => {
-                connection
-                    .ack_websocket_event(&frame, WebSocketEventAck::internal_server_error())
-                    .await?;
-                return Err(error);
-            }
-        }
-    }
-}
-
-pub(super) async fn parse_channel_event_or_ack_parse_error<C>(
-    connection: &mut C,
-    frame: &WebSocketEventFrame,
-    event: &WebSocketEvent,
-    parse_error_ack: impl FnOnce() -> WebSocketEventAck,
-) -> Result<ChannelEvent>
-where
-    C: EventConnection,
-{
-    match ChannelEvent::parse_lark_payload(event.payload()) {
-        Ok(channel_event) => Ok(channel_event),
-        Err(error) => {
-            connection
-                .ack_websocket_event(frame, parse_error_ack())
-                .await?;
-            Err(error)
-        }
     }
 }
 

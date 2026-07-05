@@ -9,6 +9,8 @@ use crate::{Error, Result};
 #[cfg(feature = "websocket")]
 mod consumer;
 #[cfg(feature = "websocket")]
+mod consumer_runtime;
+#[cfg(feature = "websocket")]
 mod r#loop;
 #[cfg(feature = "websocket")]
 mod reassembly;
