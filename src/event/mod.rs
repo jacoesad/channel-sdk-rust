@@ -162,15 +162,21 @@ impl LarkMessageReceiveEvent {
         let sender_open_id = sender_id.open_id.clone();
         let sender_type = parse_sender_type(&self.sender.sender_type);
         let content = parse_message_content(&self.message.content);
+        let event_mentions = self
+            .message
+            .mentions
+            .into_iter()
+            .map(LarkEventMention::into_message_mention)
+            .collect::<Vec<_>>();
         let mentions = normalize_message_mentions(
             &self.message.message_type,
             content.parsed.as_ref(),
-            self.message.mentions,
+            event_mentions.clone(),
         );
         let text = normalize_message_text(
             &self.message.message_type,
             content.parsed.as_ref(),
-            &mentions,
+            &event_mentions,
         );
 
         NormalizedMessage {
@@ -477,12 +483,12 @@ fn parse_message_content(content: &str) -> ParsedMessageContent {
 fn normalize_message_mentions(
     message_type: &str,
     content: Option<&Value>,
-    event_mentions: Vec<LarkEventMention>,
+    event_mentions: Vec<MessageMention>,
 ) -> Vec<MessageMention> {
     let mut mentions = Vec::new();
 
     for mention in event_mentions {
-        push_message_mention(&mut mentions, mention.into_message_mention());
+        push_message_mention(&mut mentions, mention);
     }
 
     if message_type == "post" {
@@ -695,7 +701,7 @@ fn resolve_mention_keys(text: String, mentions: &[MessageMention]) -> String {
         let remaining = &text[index..];
         if let Some((key, replacement)) = replacements
             .iter()
-            .filter(|(key, _)| remaining.starts_with(*key))
+            .filter(|(key, _)| remaining_starts_with_mention_key(remaining, key))
             .max_by_key(|(key, _)| key.len())
         {
             resolved.push_str(replacement);
@@ -709,6 +715,21 @@ fn resolve_mention_keys(text: String, mentions: &[MessageMention]) -> String {
     }
 
     resolved
+}
+
+fn remaining_starts_with_mention_key(remaining: &str, key: &str) -> bool {
+    if !remaining.starts_with(key) {
+        return false;
+    }
+
+    match remaining[key.len()..].chars().next() {
+        Some(next) => !is_mention_key_char(next),
+        None => true,
+    }
+}
+
+fn is_mention_key_char(value: char) -> bool {
+    value.is_ascii_alphanumeric() || value == '_'
 }
 
 fn mention_display_text(mention: &MessageMention) -> String {
@@ -954,6 +975,95 @@ mod tests {
         assert_eq!(message.mentions.len(), 2);
         assert_eq!(message.mentions[0].open_id, "ou_short");
         assert_eq!(message.mentions[1].open_id, "ou_long");
+    }
+
+    #[test]
+    fn resolves_duplicate_mention_aliases_before_deduplicating_public_mentions() {
+        let payload = json!({
+            "schema": "2.0",
+            "header": {
+                "event_id": "event_duplicate_mention_aliases_1",
+                "event_type": "im.message.receive_v1"
+            },
+            "event": {
+                "sender": {
+                    "sender_id": {
+                        "open_id": "ou_sender"
+                    },
+                    "sender_type": "user"
+                },
+                "message": {
+                    "message_id": "om_duplicate_mention_aliases",
+                    "chat_id": "oc_1",
+                    "message_type": "text",
+                    "content": "{\"text\":\"@_user_1 then @_user_2\"}",
+                    "mentions": [{
+                        "key": "@_user_1",
+                        "id": {
+                            "open_id": "ou_bot"
+                        },
+                        "name": "Bot"
+                    }, {
+                        "key": "@_user_2",
+                        "id": {
+                            "open_id": "ou_bot"
+                        },
+                        "name": "Bot"
+                    }]
+                }
+            }
+        });
+
+        let event = parse_lark_event_payload(payload.to_string().as_bytes()).expect("event");
+        let ChannelEvent::Message(message) = event else {
+            panic!("expected message event");
+        };
+
+        assert_eq!(message.text, "@Bot then @Bot");
+        assert_eq!(message.mentions.len(), 1);
+        assert_eq!(message.mentions[0].key, "@_user_1");
+        assert_eq!(message.mentions[0].open_id, "ou_bot");
+    }
+
+    #[test]
+    fn does_not_resolve_known_mention_key_inside_unknown_longer_key() {
+        let payload = json!({
+            "schema": "2.0",
+            "header": {
+                "event_id": "event_mention_prefix_boundary_1",
+                "event_type": "im.message.receive_v1"
+            },
+            "event": {
+                "sender": {
+                    "sender_id": {
+                        "open_id": "ou_sender"
+                    },
+                    "sender_type": "user"
+                },
+                "message": {
+                    "message_id": "om_mention_prefix_boundary",
+                    "chat_id": "oc_1",
+                    "message_type": "text",
+                    "content": "{\"text\":\"@_user_10 then @_user_1\"}",
+                    "mentions": [{
+                        "key": "@_user_1",
+                        "id": {
+                            "open_id": "ou_short"
+                        },
+                        "name": "Short"
+                    }]
+                }
+            }
+        });
+
+        let event = parse_lark_event_payload(payload.to_string().as_bytes()).expect("event");
+        let ChannelEvent::Message(message) = event else {
+            panic!("expected message event");
+        };
+
+        assert_eq!(message.text, "@_user_10 then @Short");
+        assert_eq!(message.mentions.len(), 1);
+        assert_eq!(message.mentions[0].key, "@_user_1");
     }
 
     #[test]
