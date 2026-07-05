@@ -94,11 +94,16 @@ Milestone 0 is complete when the scaffold is reviewable and the repository has e
 
 ## Milestone 4: Message Normalization
 
-- Normalize text and post messages
-- Normalize mentions
-- Preserve raw event payloads for unsupported message types
-- Add converters for common media/resource messages
-- Align semantics with `channel-sdk-node` where practical
+Milestone 4 starts from the minimal inbound message parser delivered in Milestone 3. The goal is to make `NormalizedMessage` a stable bridge-facing contract for common Lark/Feishu message events while preserving raw payloads for fields and message types that are not normalized yet.
+
+- Stabilize the inbound `NormalizedMessage` contract for message ids, chat metadata, sender metadata, threading ids, message type, plain text, mentions, and raw payload access
+- Normalize text messages, including malformed or missing content handling
+- Normalize post/rich-text messages into bridge-usable plain text while preserving structured content for later rich rendering
+- Normalize mentions from message metadata and rich-text content where Lark/Feishu exposes enough identity information
+- Preserve unsupported message types as normalized message metadata plus raw payload instead of dropping or failing otherwise valid receive events
+- Add lightweight descriptors for common media/resource message events without implementing download/upload transfer helpers yet
+- Add fixture-based tests for supported and unsupported message types
+- Align semantics with `channel-sdk-node` where practical without blocking Rust API stabilization on exact parity
 
 ## Milestone 5: Rich Content, Cards, and Streaming Replies
 

@@ -37,7 +37,7 @@ pub struct EventContext {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum ChannelEvent {
-    Message(NormalizedMessage),
+    Message(Box<NormalizedMessage>),
     CardAction(Box<CardActionEvent>),
     Unknown {
         context: Option<EventContext>,
@@ -67,7 +67,7 @@ pub fn parse_lark_event_payload(payload: &[u8]) -> Result<ChannelEvent> {
             .cloned()
             .map(serde_json::from_value::<LarkMessageReceiveEvent>)
             .transpose()?
-            .map(|event| ChannelEvent::Message(event.into_normalized_message(raw)))
+            .map(|event| ChannelEvent::Message(Box::new(event.into_normalized_message(raw))))
             .ok_or_else(|| {
                 Error::Validation("lark message receive event is missing event body".to_owned())
             });
@@ -158,9 +158,11 @@ struct LarkMessageReceiveEvent {
 
 impl LarkMessageReceiveEvent {
     fn into_normalized_message(self, raw: Value) -> NormalizedMessage {
-        let sender_open_id = self.sender.sender_id.open_id;
+        let sender_id = self.sender.sender_id;
+        let sender_open_id = sender_id.open_id.clone();
         let sender_type = parse_sender_type(&self.sender.sender_type);
-        let text = parse_text_content(&self.message.content);
+        let content = parse_message_content(&self.message.content);
+        let text = parse_text_content(content.parsed.as_ref());
         let mentions = self
             .message
             .mentions
@@ -168,6 +170,8 @@ impl LarkMessageReceiveEvent {
             .map(|mention| MessageMention {
                 key: mention.key,
                 open_id: mention.id.open_id,
+                user_id: mention.id.user_id,
+                union_id: mention.id.union_id,
                 name: mention.name,
                 mentioned_type: mention
                     .mentioned_type
@@ -184,10 +188,14 @@ impl LarkMessageReceiveEvent {
             sender_id: sender_open_id.clone(),
             sender: MessageSenderInfo {
                 open_id: sender_open_id,
+                user_id: sender_id.user_id,
+                union_id: sender_id.union_id,
                 sender_type,
             },
             message_type: self.message.message_type,
             text,
+            raw_content: content.raw,
+            content: content.parsed,
             root_id: empty_string_as_none(self.message.root_id),
             parent_id: empty_string_as_none(self.message.parent_id),
             thread_id: empty_string_as_none(self.message.thread_id),
@@ -207,8 +215,11 @@ struct LarkEventSender {
 struct LarkEventMessage {
     message_id: String,
     chat_id: String,
+    #[serde(default)]
     chat_type: String,
+    #[serde(default)]
     message_type: String,
+    #[serde(default)]
     content: String,
     #[serde(default)]
     root_id: Option<String>,
@@ -222,7 +233,9 @@ struct LarkEventMessage {
 
 #[derive(Debug, Deserialize)]
 struct LarkEventMention {
+    #[serde(default)]
     key: String,
+    #[serde(default)]
     id: LarkUserId,
     #[serde(default)]
     name: Option<String>,
@@ -230,9 +243,14 @@ struct LarkEventMention {
     mentioned_type: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct LarkUserId {
+    #[serde(default)]
     open_id: String,
+    #[serde(default)]
+    user_id: Option<String>,
+    #[serde(default)]
+    union_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -369,9 +387,26 @@ fn parse_sender_type(value: &str) -> MessageSenderType {
     }
 }
 
-fn parse_text_content(content: &str) -> String {
-    serde_json::from_str::<Value>(content)
-        .ok()
+struct ParsedMessageContent {
+    raw: String,
+    parsed: Option<Value>,
+}
+
+fn parse_message_content(content: &str) -> ParsedMessageContent {
+    let parsed = if content.is_empty() {
+        None
+    } else {
+        serde_json::from_str::<Value>(content).ok()
+    };
+
+    ParsedMessageContent {
+        raw: content.to_owned(),
+        parsed,
+    }
+}
+
+fn parse_text_content(content: Option<&Value>) -> String {
+    content
         .and_then(|value| value.get("text").and_then(Value::as_str).map(str::to_owned))
         .unwrap_or_default()
 }
@@ -399,7 +434,9 @@ mod tests {
             "event": {
                 "sender": {
                     "sender_id": {
-                        "open_id": "ou_sender"
+                        "open_id": "ou_sender",
+                        "user_id": "u_sender",
+                        "union_id": "on_sender"
                     },
                     "sender_type": "user"
                 },
@@ -415,7 +452,9 @@ mod tests {
                     "mentions": [{
                         "key": "@_user_1",
                         "id": {
-                            "open_id": "ou_bot"
+                            "open_id": "ou_bot",
+                            "user_id": "u_bot",
+                            "union_id": "on_bot"
                         },
                         "name": "Bot"
                     }]
@@ -432,18 +471,111 @@ mod tests {
         assert_eq!(message.chat_id, "oc_1");
         assert_eq!(message.chat_type, MessageChatType::Group);
         assert_eq!(message.sender_id, "ou_sender");
+        assert_eq!(message.sender.open_id, "ou_sender");
+        assert_eq!(message.sender.user_id.as_deref(), Some("u_sender"));
+        assert_eq!(message.sender.union_id.as_deref(), Some("on_sender"));
         assert_eq!(message.sender.sender_type, MessageSenderType::User);
         assert_eq!(message.message_type, "text");
         assert_eq!(message.text, "@_user_1 hello");
+        assert_eq!(message.raw_content, "{\"text\":\"@_user_1 hello\"}");
+        assert_eq!(
+            message.content.as_ref().expect("content")["text"],
+            "@_user_1 hello"
+        );
         assert_eq!(message.root_id.as_deref(), Some("om_root"));
         assert_eq!(message.parent_id.as_deref(), Some("om_parent"));
         assert_eq!(message.thread_id.as_deref(), Some("omt_1"));
         assert_eq!(message.mentions.len(), 1);
+        assert_eq!(message.mentions[0].open_id, "ou_bot");
+        assert_eq!(message.mentions[0].user_id.as_deref(), Some("u_bot"));
+        assert_eq!(message.mentions[0].union_id.as_deref(), Some("on_bot"));
         assert_eq!(
             message.mentions[0].mentioned_type,
             MessageSenderType::Unknown
         );
         assert!(message.mentions_bot("ou_bot"));
+    }
+
+    #[test]
+    fn unsupported_lark_message_type_preserves_metadata_and_content() {
+        let payload = json!({
+            "schema": "2.0",
+            "header": {
+                "event_id": "event_image_1",
+                "event_type": "im.message.receive_v1"
+            },
+            "event": {
+                "sender": {
+                    "sender_id": {
+                        "open_id": "ou_sender"
+                    },
+                    "sender_type": "user"
+                },
+                "message": {
+                    "message_id": "om_image",
+                    "chat_id": "oc_1",
+                    "chat_type": "group",
+                    "message_type": "image",
+                    "content": "{\"image_key\":\"img_v2_1\"}"
+                }
+            }
+        });
+
+        let event = parse_lark_event_payload(payload.to_string().as_bytes()).expect("event");
+        let ChannelEvent::Message(message) = event else {
+            panic!("expected message event");
+        };
+
+        assert_eq!(message.message_id, "om_image");
+        assert_eq!(message.message_type, "image");
+        assert_eq!(message.text, "");
+        assert_eq!(message.raw_content, "{\"image_key\":\"img_v2_1\"}");
+        assert_eq!(
+            message.content.as_ref().expect("content")["image_key"],
+            "img_v2_1"
+        );
+        assert_eq!(message.raw["header"]["event_type"], "im.message.receive_v1");
+    }
+
+    #[test]
+    fn malformed_lark_message_content_does_not_drop_receive_event() {
+        let payload = json!({
+            "schema": "2.0",
+            "header": {
+                "event_id": "event_bad_content_1",
+                "event_type": "im.message.receive_v1"
+            },
+            "event": {
+                "sender": {
+                    "sender_id": {
+                        "open_id": "ou_sender"
+                    },
+                    "sender_type": "user"
+                },
+                "message": {
+                    "message_id": "om_bad",
+                    "chat_id": "oc_1",
+                    "message_type": "text",
+                    "content": "{not valid json"
+                }
+            }
+        });
+
+        let event = parse_lark_event_payload(payload.to_string().as_bytes()).expect("event");
+        let ChannelEvent::Message(message) = event else {
+            panic!("expected message event");
+        };
+
+        assert_eq!(message.message_id, "om_bad");
+        assert_eq!(message.chat_type, MessageChatType::Unknown);
+        assert_eq!(message.message_type, "text");
+        assert_eq!(message.text, "");
+        assert_eq!(message.raw_content, "{not valid json");
+        assert_eq!(message.content, None);
+        assert_eq!(
+            message.raw["event"]["message"]["content"],
+            "{not valid json"
+        );
     }
 
     #[test]
