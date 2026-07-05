@@ -26,10 +26,12 @@ Inbound `im.message.receive_v1` event payloads can be parsed with `parse_lark_ev
 - the original Lark/Feishu stringified message content as `raw_content`
 - parsed JSON message content as `content` when the original content is valid JSON
 - root, parent, and thread ids when present
-- structured mentions with mention key, open id, user id, union id, name, and mentioned type when provided
+- structured mentions with mention key, open id, user id, union id, name, and mentioned type when provided by event metadata or supported rich-text `at` elements
 - the raw event payload for unsupported or richer follow-up parsing
 
-For `message_type=text`, `text` is read from the parsed content `text` field. For `message_type=post`, `text` is derived from the selected post document title and supported inline elements. The current post normalization chooses `zh_cn`, then `en_us`, then `ja_jp`, then the first document-shaped locale block. It includes `text`, link text, and `@user_name` from `at` elements, joins post lines with newlines, and skips non-text resource elements such as images while keeping the full parsed `content` available.
+For `message_type=text`, `text` is read from the parsed content `text` field. Mention placeholder keys such as `@_user_1` are replaced with `@name` when the event metadata provides a matching mention name. For `message_type=post`, `text` is derived from the selected post document title and supported inline elements. The current post normalization chooses `zh_cn`, then `en_us`, then `ja_jp`, then the first document-shaped locale block. It includes `text`, link text, and `@user_name` from `at` elements, joins post lines with newlines, and skips non-text resource elements such as images while keeping the full parsed `content` available.
+
+Mentions from event metadata are treated as the authoritative source when present. Rich-text `at` elements can add mention entries when they expose a user identifier and name; duplicate entries are merged by key, open id, user id, or union id. Event mention ids are accepted in both the nested `id.open_id/user_id/union_id` shape and the `id` plus `id_type` shape used by some generated models. `@all` rich-text mentions are preserved with the key `@_all` when exposed by Lark/Feishu.
 
 Malformed message content does not drop an otherwise valid receive event. In that case `raw_content` preserves the exact content string, `content` is `None`, and `text` is empty. Unsupported message types still produce `ChannelEvent::Message` with message metadata and raw payload access; richer normalization remains follow-up work.
 
@@ -47,7 +49,7 @@ The loop sends the official application-level heartbeat ping at the endpoint-pro
 
 Lower-level raw message entry points are available under `lark_channel::lark_openapi` for callers that need to pass `MessageContent` directly. See [lark-api.md](lark-api.md) for the exact official API mappings.
 
-Structured mentions, rich content builders, card helpers, media upload, and richer retry policies are planned follow-up work.
+Rich mention composition, rich content builders, card helpers, media upload, and richer retry policies are planned follow-up work.
 
 Runnable examples are documented in [../examples/README.md](../examples/README.md), including low-level create/reply calls and the high-level `MessageSender` flow.
 

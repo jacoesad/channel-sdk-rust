@@ -162,24 +162,16 @@ impl LarkMessageReceiveEvent {
         let sender_open_id = sender_id.open_id.clone();
         let sender_type = parse_sender_type(&self.sender.sender_type);
         let content = parse_message_content(&self.message.content);
-        let text = normalize_message_text(&self.message.message_type, content.parsed.as_ref());
-        let mentions = self
-            .message
-            .mentions
-            .into_iter()
-            .map(|mention| MessageMention {
-                key: mention.key,
-                open_id: mention.id.open_id,
-                user_id: mention.id.user_id,
-                union_id: mention.id.union_id,
-                name: mention.name,
-                mentioned_type: mention
-                    .mentioned_type
-                    .as_deref()
-                    .map(parse_sender_type)
-                    .unwrap_or(MessageSenderType::Unknown),
-            })
-            .collect();
+        let mentions = normalize_message_mentions(
+            &self.message.message_type,
+            content.parsed.as_ref(),
+            self.message.mentions,
+        );
+        let text = normalize_message_text(
+            &self.message.message_type,
+            content.parsed.as_ref(),
+            &mentions,
+        );
 
         NormalizedMessage {
             message_id: self.message.message_id,
@@ -235,12 +227,33 @@ struct LarkEventMessage {
 struct LarkEventMention {
     #[serde(default)]
     key: String,
+    #[serde(default, deserialize_with = "deserialize_lark_mention_id")]
+    id: LarkMentionId,
     #[serde(default)]
-    id: LarkUserId,
+    id_type: Option<String>,
     #[serde(default)]
     name: Option<String>,
     #[serde(default)]
     mentioned_type: Option<String>,
+}
+
+impl LarkEventMention {
+    fn into_message_mention(self) -> MessageMention {
+        let (open_id, user_id, union_id) = self.id.into_parts(self.id_type.as_deref());
+
+        MessageMention {
+            key: self.key,
+            open_id,
+            user_id,
+            union_id,
+            name: self.name,
+            mentioned_type: self
+                .mentioned_type
+                .as_deref()
+                .map(parse_sender_type)
+                .unwrap_or(MessageSenderType::Unknown),
+        }
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -251,6 +264,62 @@ struct LarkUserId {
     user_id: Option<String>,
     #[serde(default)]
     union_id: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct LarkMentionId {
+    open_id: String,
+    user_id: Option<String>,
+    union_id: Option<String>,
+    raw_id: Option<String>,
+}
+
+impl LarkMentionId {
+    fn into_parts(self, id_type: Option<&str>) -> (String, Option<String>, Option<String>) {
+        let user_id = empty_string_as_none(self.user_id);
+        let union_id = empty_string_as_none(self.union_id);
+        if !self.open_id.is_empty() || user_id.is_some() || union_id.is_some() {
+            return (self.open_id, user_id, union_id);
+        }
+
+        let Some(raw_id) = self.raw_id.filter(|id| !id.is_empty()) else {
+            return (String::new(), None, None);
+        };
+
+        match id_type {
+            Some("user_id") => (String::new(), Some(raw_id), None),
+            Some("union_id") => (String::new(), None, Some(raw_id)),
+            _ => (raw_id, None, None),
+        }
+    }
+}
+
+fn deserialize_lark_mention_id<'de, D>(
+    deserializer: D,
+) -> std::result::Result<LarkMentionId, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum MentionIdValue {
+        Structured(LarkUserId),
+        Raw(String),
+    }
+
+    Option::<MentionIdValue>::deserialize(deserializer).map(|value| match value {
+        Some(MentionIdValue::Structured(id)) => LarkMentionId {
+            open_id: id.open_id,
+            user_id: id.user_id,
+            union_id: id.union_id,
+            raw_id: None,
+        },
+        Some(MentionIdValue::Raw(raw_id)) => LarkMentionId {
+            raw_id: Some(raw_id),
+            ..LarkMentionId::default()
+        },
+        None => LarkMentionId::default(),
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -405,12 +474,38 @@ fn parse_message_content(content: &str) -> ParsedMessageContent {
     }
 }
 
-fn normalize_message_text(message_type: &str, content: Option<&Value>) -> String {
-    match message_type {
+fn normalize_message_mentions(
+    message_type: &str,
+    content: Option<&Value>,
+    event_mentions: Vec<LarkEventMention>,
+) -> Vec<MessageMention> {
+    let mut mentions = Vec::new();
+
+    for mention in event_mentions {
+        push_message_mention(&mut mentions, mention.into_message_mention());
+    }
+
+    if message_type == "post" {
+        for mention in parse_post_mentions(content) {
+            push_message_mention(&mut mentions, mention);
+        }
+    }
+
+    mentions
+}
+
+fn normalize_message_text(
+    message_type: &str,
+    content: Option<&Value>,
+    mentions: &[MessageMention],
+) -> String {
+    let text = match message_type {
         "text" => parse_text_content(content),
         "post" => parse_post_content(content),
         _ => String::new(),
-    }
+    };
+
+    resolve_mention_keys(text, mentions)
 }
 
 fn parse_text_content(content: Option<&Value>) -> String {
@@ -424,6 +519,30 @@ fn parse_post_content(content: Option<&Value>) -> String {
         .and_then(select_post_document)
         .map(post_document_text)
         .unwrap_or_default()
+}
+
+fn parse_post_mentions(content: Option<&Value>) -> Vec<MessageMention> {
+    let Some(document) = content.and_then(select_post_document) else {
+        return Vec::new();
+    };
+
+    let Some(content) = document.get("content").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+
+    let mut mentions = Vec::new();
+    for line in content {
+        let Some(elements) = line.as_array() else {
+            continue;
+        };
+        for element in elements {
+            if let Some(mention) = post_at_mention(element) {
+                push_message_mention(&mut mentions, mention);
+            }
+        }
+    }
+
+    mentions
 }
 
 fn select_post_document(value: &Value) -> Option<&Value> {
@@ -510,6 +629,151 @@ fn post_at_text(element: &Value) -> String {
     }
 }
 
+fn post_at_mention(element: &Value) -> Option<MessageMention> {
+    if element.get("tag").and_then(Value::as_str) != Some("at") {
+        return None;
+    }
+
+    let raw_user_id = element
+        .get("user_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let name = element
+        .get("user_name")
+        .or_else(|| element.get("text"))
+        .and_then(Value::as_str)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned);
+
+    if raw_user_id.is_empty() {
+        return None;
+    }
+
+    if raw_user_id == "all" || raw_user_id == "all_members" {
+        return Some(MessageMention {
+            key: "@_all".to_owned(),
+            open_id: String::new(),
+            user_id: None,
+            union_id: None,
+            name,
+            mentioned_type: MessageSenderType::Unknown,
+        });
+    }
+
+    let (open_id, user_id) = if raw_user_id.starts_with("ou_") {
+        (raw_user_id.to_owned(), None)
+    } else {
+        (String::new(), Some(raw_user_id.to_owned()))
+    };
+
+    Some(MessageMention {
+        key: String::new(),
+        open_id,
+        user_id,
+        union_id: None,
+        name,
+        mentioned_type: MessageSenderType::Unknown,
+    })
+}
+
+fn resolve_mention_keys(text: String, mentions: &[MessageMention]) -> String {
+    let replacements = mentions
+        .iter()
+        .filter(|mention| !mention.key.is_empty())
+        .map(|mention| (mention.key.as_str(), mention_display_text(mention)))
+        .filter(|(key, replacement)| key != replacement)
+        .collect::<Vec<_>>();
+
+    if replacements.is_empty() {
+        return text;
+    }
+
+    let mut resolved = String::with_capacity(text.len());
+    let mut index = 0;
+
+    while index < text.len() {
+        let remaining = &text[index..];
+        if let Some((key, replacement)) = replacements
+            .iter()
+            .filter(|(key, _)| remaining.starts_with(*key))
+            .max_by_key(|(key, _)| key.len())
+        {
+            resolved.push_str(replacement);
+            index += key.len();
+        } else if let Some(next) = remaining.chars().next() {
+            resolved.push(next);
+            index += next.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    resolved
+}
+
+fn mention_display_text(mention: &MessageMention) -> String {
+    if let Some(name) = mention.name.as_deref().filter(|name| !name.is_empty()) {
+        if name.starts_with('@') {
+            name.to_owned()
+        } else {
+            format!("@{name}")
+        }
+    } else {
+        mention.key.clone()
+    }
+}
+
+fn push_message_mention(mentions: &mut Vec<MessageMention>, mention: MessageMention) {
+    if mention.key.is_empty()
+        && mention.open_id.is_empty()
+        && mention.user_id.is_none()
+        && mention.union_id.is_none()
+    {
+        return;
+    }
+
+    if let Some(existing) = mentions
+        .iter_mut()
+        .find(|existing| same_message_mention(existing, &mention))
+    {
+        merge_message_mention(existing, mention);
+    } else {
+        mentions.push(mention);
+    }
+}
+
+fn same_message_mention(left: &MessageMention, right: &MessageMention) -> bool {
+    (!left.key.is_empty() && left.key == right.key)
+        || (!left.open_id.is_empty() && left.open_id == right.open_id)
+        || same_non_empty_optional_id(left.user_id.as_deref(), right.user_id.as_deref())
+        || same_non_empty_optional_id(left.union_id.as_deref(), right.union_id.as_deref())
+}
+
+fn same_non_empty_optional_id(left: Option<&str>, right: Option<&str>) -> bool {
+    matches!((left, right), (Some(left), Some(right)) if !left.is_empty() && left == right)
+}
+
+fn merge_message_mention(existing: &mut MessageMention, next: MessageMention) {
+    if existing.key.is_empty() {
+        existing.key = next.key;
+    }
+    if existing.open_id.is_empty() {
+        existing.open_id = next.open_id;
+    }
+    if existing.user_id.is_none() {
+        existing.user_id = next.user_id;
+    }
+    if existing.union_id.is_none() {
+        existing.union_id = next.union_id;
+    }
+    if existing.name.is_none() {
+        existing.name = next.name;
+    }
+    if existing.mentioned_type == MessageSenderType::Unknown {
+        existing.mentioned_type = next.mentioned_type;
+    }
+}
+
 fn empty_string_as_none(value: Option<String>) -> Option<String> {
     value.and_then(|value| (!value.is_empty()).then_some(value))
 }
@@ -555,7 +819,8 @@ mod tests {
                             "user_id": "u_bot",
                             "union_id": "on_bot"
                         },
-                        "name": "Bot"
+                        "name": "Bot",
+                        "mentioned_type": "bot"
                     }]
                 }
             }
@@ -575,7 +840,7 @@ mod tests {
         assert_eq!(message.sender.union_id.as_deref(), Some("on_sender"));
         assert_eq!(message.sender.sender_type, MessageSenderType::User);
         assert_eq!(message.message_type, "text");
-        assert_eq!(message.text, "@_user_1 hello");
+        assert_eq!(message.text, "@Bot hello");
         assert_eq!(message.raw_content, "{\"text\":\"@_user_1 hello\"}");
         assert_eq!(
             message.content.as_ref().expect("content")["text"],
@@ -588,11 +853,107 @@ mod tests {
         assert_eq!(message.mentions[0].open_id, "ou_bot");
         assert_eq!(message.mentions[0].user_id.as_deref(), Some("u_bot"));
         assert_eq!(message.mentions[0].union_id.as_deref(), Some("on_bot"));
-        assert_eq!(
-            message.mentions[0].mentioned_type,
-            MessageSenderType::Unknown
-        );
+        assert_eq!(message.mentions[0].name.as_deref(), Some("Bot"));
+        assert_eq!(message.mentions[0].mentioned_type, MessageSenderType::Bot);
         assert!(message.mentions_bot("ou_bot"));
+    }
+
+    #[test]
+    fn parses_lark_message_mentions_with_legacy_id_shape() {
+        let payload = json!({
+            "schema": "2.0",
+            "header": {
+                "event_id": "event_legacy_mention_1",
+                "event_type": "im.message.receive_v1"
+            },
+            "event": {
+                "sender": {
+                    "sender_id": {
+                        "open_id": "ou_sender"
+                    },
+                    "sender_type": "user"
+                },
+                "message": {
+                    "message_id": "om_legacy_mention",
+                    "chat_id": "oc_1",
+                    "message_type": "text",
+                    "content": "{\"text\":\"hello @_open and @_user\"}",
+                    "mentions": [{
+                        "key": "@_open",
+                        "id": "ou_legacy",
+                        "id_type": "open_id",
+                        "name": "Legacy"
+                    }, {
+                        "key": "@_user",
+                        "id": "u_legacy",
+                        "id_type": "user_id",
+                        "name": "UserOnly"
+                    }]
+                }
+            }
+        });
+
+        let event = parse_lark_event_payload(payload.to_string().as_bytes()).expect("event");
+        let ChannelEvent::Message(message) = event else {
+            panic!("expected message event");
+        };
+
+        assert_eq!(message.text, "hello @Legacy and @UserOnly");
+        assert_eq!(message.mentions.len(), 2);
+        assert_eq!(message.mentions[0].open_id, "ou_legacy");
+        assert_eq!(message.mentions[0].name.as_deref(), Some("Legacy"));
+        assert_eq!(message.mentions[1].open_id, "");
+        assert_eq!(message.mentions[1].user_id.as_deref(), Some("u_legacy"));
+        assert_eq!(message.mentions[1].name.as_deref(), Some("UserOnly"));
+        assert!(message.mentions_bot("ou_legacy"));
+    }
+
+    #[test]
+    fn resolves_overlapping_mention_keys_without_corrupting_longer_keys() {
+        let payload = json!({
+            "schema": "2.0",
+            "header": {
+                "event_id": "event_overlapping_mentions_1",
+                "event_type": "im.message.receive_v1"
+            },
+            "event": {
+                "sender": {
+                    "sender_id": {
+                        "open_id": "ou_sender"
+                    },
+                    "sender_type": "user"
+                },
+                "message": {
+                    "message_id": "om_overlapping_mentions",
+                    "chat_id": "oc_1",
+                    "message_type": "text",
+                    "content": "{\"text\":\"@_user_10 then @_user_1\"}",
+                    "mentions": [{
+                        "key": "@_user_1",
+                        "id": {
+                            "open_id": "ou_short"
+                        },
+                        "name": "Short"
+                    }, {
+                        "key": "@_user_10",
+                        "id": {
+                            "open_id": "ou_long"
+                        },
+                        "name": "Long"
+                    }]
+                }
+            }
+        });
+
+        let event = parse_lark_event_payload(payload.to_string().as_bytes()).expect("event");
+        let ChannelEvent::Message(message) = event else {
+            panic!("expected message event");
+        };
+
+        assert_eq!(message.text, "@Long then @Short");
+        assert_eq!(message.mentions.len(), 2);
+        assert_eq!(message.mentions[0].open_id, "ou_short");
+        assert_eq!(message.mentions[1].open_id, "ou_long");
     }
 
     #[test]
@@ -665,6 +1026,158 @@ mod tests {
             message.content.as_ref().expect("content")["content"][0][1]["user_name"],
             "Bot"
         );
+        assert_eq!(message.mentions.len(), 1);
+        assert_eq!(message.mentions[0].open_id, "ou_bot");
+        assert_eq!(message.mentions[0].name.as_deref(), Some("Bot"));
+        assert!(message.mentions_bot("ou_bot"));
+    }
+
+    #[test]
+    fn deduplicates_lark_post_mentions_against_event_metadata() {
+        let payload = json!({
+            "schema": "2.0",
+            "header": {
+                "event_id": "event_post_mention_dedupe_1",
+                "event_type": "im.message.receive_v1"
+            },
+            "event": {
+                "sender": {
+                    "sender_id": {
+                        "open_id": "ou_sender"
+                    },
+                    "sender_type": "user"
+                },
+                "message": {
+                    "message_id": "om_post_mention_dedupe",
+                    "chat_id": "oc_1",
+                    "message_type": "post",
+                    "content": serde_json::to_string(&json!({
+                        "title": "",
+                        "content": [[
+                            {
+                                "tag": "at",
+                                "user_id": "ou_bot",
+                                "user_name": "Bot"
+                            }
+                        ]]
+                    })).expect("post content"),
+                    "mentions": [{
+                        "key": "@_user_1",
+                        "id": {
+                            "open_id": "ou_bot"
+                        }
+                    }]
+                }
+            }
+        });
+
+        let event = parse_lark_event_payload(payload.to_string().as_bytes()).expect("event");
+        let ChannelEvent::Message(message) = event else {
+            panic!("expected message event");
+        };
+
+        assert_eq!(message.text, "@Bot");
+        assert_eq!(message.mentions.len(), 1);
+        assert_eq!(message.mentions[0].key, "@_user_1");
+        assert_eq!(message.mentions[0].open_id, "ou_bot");
+        assert_eq!(message.mentions[0].name.as_deref(), Some("Bot"));
+    }
+
+    #[test]
+    fn does_not_deduplicate_distinct_mentions_with_empty_optional_ids() {
+        let payload = json!({
+            "schema": "2.0",
+            "header": {
+                "event_id": "event_empty_optional_mention_ids_1",
+                "event_type": "im.message.receive_v1"
+            },
+            "event": {
+                "sender": {
+                    "sender_id": {
+                        "open_id": "ou_sender"
+                    },
+                    "sender_type": "user"
+                },
+                "message": {
+                    "message_id": "om_empty_optional_mention_ids",
+                    "chat_id": "oc_1",
+                    "message_type": "text",
+                    "content": "{\"text\":\"@_a @_b\"}",
+                    "mentions": [{
+                        "key": "@_a",
+                        "id": {
+                            "open_id": "ou_a",
+                            "user_id": "",
+                            "union_id": ""
+                        },
+                        "name": "A"
+                    }, {
+                        "key": "@_b",
+                        "id": {
+                            "open_id": "ou_b",
+                            "user_id": "",
+                            "union_id": ""
+                        },
+                        "name": "B"
+                    }]
+                }
+            }
+        });
+
+        let event = parse_lark_event_payload(payload.to_string().as_bytes()).expect("event");
+        let ChannelEvent::Message(message) = event else {
+            panic!("expected message event");
+        };
+
+        assert_eq!(message.text, "@A @B");
+        assert_eq!(message.mentions.len(), 2);
+        assert_eq!(message.mentions[0].open_id, "ou_a");
+        assert_eq!(message.mentions[0].user_id, None);
+        assert_eq!(message.mentions[0].union_id, None);
+        assert_eq!(message.mentions[1].open_id, "ou_b");
+        assert_eq!(message.mentions[1].user_id, None);
+        assert_eq!(message.mentions[1].union_id, None);
+    }
+
+    #[test]
+    fn skips_rich_text_at_mentions_without_identifier() {
+        let payload = json!({
+            "schema": "2.0",
+            "header": {
+                "event_id": "event_post_mention_without_id_1",
+                "event_type": "im.message.receive_v1"
+            },
+            "event": {
+                "sender": {
+                    "sender_id": {
+                        "open_id": "ou_sender"
+                    },
+                    "sender_type": "user"
+                },
+                "message": {
+                    "message_id": "om_post_mention_without_id",
+                    "chat_id": "oc_1",
+                    "message_type": "post",
+                    "content": serde_json::to_string(&json!({
+                        "title": "",
+                        "content": [[
+                            {
+                                "tag": "at",
+                                "user_name": "Visible"
+                            }
+                        ]]
+                    })).expect("post content")
+                }
+            }
+        });
+
+        let event = parse_lark_event_payload(payload.to_string().as_bytes()).expect("event");
+        let ChannelEvent::Message(message) = event else {
+            panic!("expected message event");
+        };
+
+        assert_eq!(message.text, "@Visible");
+        assert!(message.mentions.is_empty());
     }
 
     #[test]
