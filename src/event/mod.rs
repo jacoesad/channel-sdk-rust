@@ -162,7 +162,7 @@ impl LarkMessageReceiveEvent {
         let sender_open_id = sender_id.open_id.clone();
         let sender_type = parse_sender_type(&self.sender.sender_type);
         let content = parse_message_content(&self.message.content);
-        let text = parse_text_content(content.parsed.as_ref());
+        let text = normalize_message_text(&self.message.message_type, content.parsed.as_ref());
         let mentions = self
             .message
             .mentions
@@ -405,10 +405,109 @@ fn parse_message_content(content: &str) -> ParsedMessageContent {
     }
 }
 
+fn normalize_message_text(message_type: &str, content: Option<&Value>) -> String {
+    match message_type {
+        "text" => parse_text_content(content),
+        "post" => parse_post_content(content),
+        _ => String::new(),
+    }
+}
+
 fn parse_text_content(content: Option<&Value>) -> String {
     content
         .and_then(|value| value.get("text").and_then(Value::as_str).map(str::to_owned))
         .unwrap_or_default()
+}
+
+fn parse_post_content(content: Option<&Value>) -> String {
+    content
+        .and_then(select_post_document)
+        .map(post_document_text)
+        .unwrap_or_default()
+}
+
+fn select_post_document(value: &Value) -> Option<&Value> {
+    if is_post_document(value) {
+        return Some(value);
+    }
+
+    for locale in ["zh_cn", "en_us", "ja_jp"] {
+        if let Some(document) = value.get(locale).filter(|value| is_post_document(value)) {
+            return Some(document);
+        }
+    }
+
+    value
+        .as_object()?
+        .values()
+        .find(|value| is_post_document(value))
+}
+
+fn is_post_document(value: &Value) -> bool {
+    value.get("title").and_then(Value::as_str).is_some()
+        || value.get("content").and_then(Value::as_array).is_some()
+}
+
+fn post_document_text(document: &Value) -> String {
+    let mut lines = Vec::new();
+
+    if let Some(title) = document.get("title").and_then(Value::as_str) {
+        if !title.is_empty() {
+            lines.push(title.to_owned());
+        }
+    }
+
+    if let Some(content) = document.get("content").and_then(Value::as_array) {
+        lines.extend(
+            content
+                .iter()
+                .filter_map(post_line_text)
+                .filter(|line| !line.is_empty()),
+        );
+    }
+
+    lines.join("\n")
+}
+
+fn post_line_text(line: &Value) -> Option<String> {
+    let elements = line.as_array()?;
+    let mut text = String::new();
+
+    for element in elements {
+        text.push_str(&post_element_text(element));
+    }
+
+    Some(text)
+}
+
+fn post_element_text(element: &Value) -> String {
+    match element.get("tag").and_then(Value::as_str) {
+        Some("at") => post_at_text(element),
+        Some("text" | "a") => element_text(element),
+        _ => element_text(element),
+    }
+}
+
+fn element_text(element: &Value) -> String {
+    element
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned()
+}
+
+fn post_at_text(element: &Value) -> String {
+    let name = element
+        .get("user_name")
+        .or_else(|| element.get("text"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    if name.is_empty() || name.starts_with('@') {
+        name.to_owned()
+    } else {
+        format!("@{name}")
+    }
 }
 
 fn empty_string_as_none(value: Option<String>) -> Option<String> {
@@ -494,6 +593,189 @@ mod tests {
             MessageSenderType::Unknown
         );
         assert!(message.mentions_bot("ou_bot"));
+    }
+
+    #[test]
+    fn normalizes_lark_post_message_to_plain_text() {
+        let payload = json!({
+            "schema": "2.0",
+            "header": {
+                "event_id": "event_post_1",
+                "event_type": "im.message.receive_v1"
+            },
+            "event": {
+                "sender": {
+                    "sender_id": {
+                        "open_id": "ou_sender"
+                    },
+                    "sender_type": "user"
+                },
+                "message": {
+                    "message_id": "om_post",
+                    "chat_id": "oc_1",
+                    "chat_type": "group",
+                    "message_type": "post",
+                    "content": serde_json::to_string(&json!({
+                        "title": "Post title",
+                        "content": [
+                            [
+                                {
+                                    "tag": "text",
+                                    "text": "hello "
+                                },
+                                {
+                                    "tag": "at",
+                                    "user_id": "ou_bot",
+                                    "user_name": "Bot"
+                                },
+                                {
+                                    "tag": "text",
+                                    "text": " see "
+                                },
+                                {
+                                    "tag": "a",
+                                    "text": "docs",
+                                    "href": "https://example.test"
+                                }
+                            ],
+                            [
+                                {
+                                    "tag": "text",
+                                    "text": "second line"
+                                },
+                                {
+                                    "tag": "img",
+                                    "image_key": "img_v2_1"
+                                }
+                            ]
+                        ]
+                    })).expect("post content")
+                }
+            }
+        });
+
+        let event = parse_lark_event_payload(payload.to_string().as_bytes()).expect("event");
+        let ChannelEvent::Message(message) = event else {
+            panic!("expected message event");
+        };
+
+        assert_eq!(message.message_type, "post");
+        assert_eq!(message.text, "Post title\nhello @Bot see docs\nsecond line");
+        assert_eq!(
+            message.content.as_ref().expect("content")["content"][0][1]["user_name"],
+            "Bot"
+        );
+    }
+
+    #[test]
+    fn normalizes_multilingual_lark_post_message_with_preferred_locale() {
+        let payload = json!({
+            "schema": "2.0",
+            "header": {
+                "event_id": "event_post_i18n_1",
+                "event_type": "im.message.receive_v1"
+            },
+            "event": {
+                "sender": {
+                    "sender_id": {
+                        "open_id": "ou_sender"
+                    },
+                    "sender_type": "user"
+                },
+                "message": {
+                    "message_id": "om_post_i18n",
+                    "chat_id": "oc_1",
+                    "message_type": "post",
+                    "content": serde_json::to_string(&json!({
+                        "en_us": {
+                            "title": "English",
+                            "content": [[
+                                {
+                                    "tag": "text",
+                                    "text": "hello"
+                                }
+                            ]]
+                        },
+                        "zh_cn": {
+                            "title": "中文",
+                            "content": [[
+                                {
+                                    "tag": "text",
+                                    "text": "你好"
+                                }
+                            ]]
+                        }
+                    })).expect("post content")
+                }
+            }
+        });
+
+        let event = parse_lark_event_payload(payload.to_string().as_bytes()).expect("event");
+        let ChannelEvent::Message(message) = event else {
+            panic!("expected message event");
+        };
+
+        assert_eq!(message.text, "中文\n你好");
+    }
+
+    #[test]
+    fn normalizes_lark_post_message_with_locale_fallbacks() {
+        let ja_jp = json!({
+            "ja_jp": {
+                "title": "日本語",
+                "content": [[
+                    {
+                        "tag": "text",
+                        "text": "こんにちは"
+                    }
+                ]]
+            }
+        });
+
+        assert_eq!(parse_post_content(Some(&ja_jp)), "日本語\nこんにちは");
+
+        let en_us_over_ja_jp = json!({
+            "ja_jp": {
+                "title": "日本語",
+                "content": [[
+                    {
+                        "tag": "text",
+                        "text": "こんにちは"
+                    }
+                ]]
+            },
+            "en_us": {
+                "title": "English",
+                "content": [[
+                    {
+                        "tag": "text",
+                        "text": "hello"
+                    }
+                ]]
+            }
+        });
+
+        assert_eq!(
+            parse_post_content(Some(&en_us_over_ja_jp)),
+            "English\nhello"
+        );
+
+        let custom_locale = json!({
+            "fr_fr": {
+                "title": "Français",
+                "content": [[
+                    {
+                        "tag": "text",
+                        "text": "bonjour"
+                    }
+                ]]
+            }
+        });
+
+        assert_eq!(
+            parse_post_content(Some(&custom_locale)),
+            "Français\nbonjour"
+        );
     }
 
     #[test]
