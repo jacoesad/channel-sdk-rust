@@ -12,6 +12,11 @@ use lark_channel::{
     OpenApiWebSocketEventConnector, ReceivedEvent,
 };
 
+const OPENAPI_UUID_MAX_CHARS: usize = 50;
+const ECHO_UUID_PREFIX: &str = "echo-";
+const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+const FNV_PRIME: u64 = 0x00000100000001b3;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = ChannelConfig::new(
@@ -93,6 +98,7 @@ where
     let reply_text = format!("{}{}", echo.prefix, text);
     let reply_id = sender
         .text_reply(MessageId(message.message_id.clone()), reply_text)
+        .uuid(echo_uuid_for_message_id(&message.message_id))
         .reply_in_thread(echo.reply_in_thread)
         .send()
         .await?;
@@ -102,6 +108,21 @@ where
     );
 
     Ok(WebSocketEventAck::ok())
+}
+
+fn echo_uuid_for_message_id(message_id: &str) -> String {
+    let prefixed_len = ECHO_UUID_PREFIX.chars().count() + message_id.chars().count();
+    if prefixed_len <= OPENAPI_UUID_MAX_CHARS {
+        return format!("{ECHO_UUID_PREFIX}{message_id}");
+    }
+
+    format!("{ECHO_UUID_PREFIX}{:016x}", stable_hash(message_id))
+}
+
+fn stable_hash(value: &str) -> u64 {
+    value.bytes().fold(FNV_OFFSET_BASIS, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME)
+    })
 }
 
 fn should_echo_message(message: &NormalizedMessage, echo: &EchoConfig) -> bool {
@@ -202,5 +223,26 @@ fn parse_bool(name: &str, value: &str) -> Result<bool, io::Error> {
             io::ErrorKind::InvalidInput,
             format!("{name} must be true or false"),
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn echo_uuid_uses_short_message_id_directly() {
+        assert_eq!(echo_uuid_for_message_id("om_123"), "echo-om_123");
+    }
+
+    #[test]
+    fn echo_uuid_hashes_long_message_id_within_openapi_limit() {
+        let message_id = format!("om_{}", "x".repeat(80));
+
+        let uuid = echo_uuid_for_message_id(&message_id);
+
+        assert_eq!(uuid, echo_uuid_for_message_id(&message_id));
+        assert!(uuid.starts_with(ECHO_UUID_PREFIX));
+        assert!(uuid.chars().count() <= OPENAPI_UUID_MAX_CHARS);
     }
 }
