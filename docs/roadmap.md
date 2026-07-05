@@ -14,7 +14,7 @@ Milestone 0 established the repository and public crate shape:
 - A `ChannelClient` trait for future transport implementations
 - CI for formatting, clippy, and tests
 
-The project has completed Milestone 2 with outbound text messaging, replies, idempotency options, and the first high-level message sender. Milestone 3 has started with WebSocket endpoint discovery, a raw connection foundation, event frame parsing, explicit event acknowledgement, inbound message parsing, card action callback parsing, a single-connection event consumer, a reconnecting event loop, timer-driven application heartbeat, split-packet event reassembly, and a minimal echo bot example. It still does not implement full message normalization, card helpers, or media transfer yet.
+The project has completed Milestone 2 with outbound text messaging, replies, idempotency options, and the first high-level message sender. Milestone 3 has started with WebSocket endpoint discovery, a raw connection foundation, event frame parsing, explicit event acknowledgement, inbound message parsing, card action callback parsing, a single-connection event consumer, a reconnecting event loop, timer-driven application heartbeat, split-packet event reassembly, a minimal echo bot example, and the first internal runtime boundaries for receive/reassembly, dispatch, and protocol writes. It still does not implement full message normalization, card helpers, or media transfer yet.
 
 ## Architecture Boundary
 
@@ -32,7 +32,7 @@ The currently implemented OpenAPI surface is tracked in [lark-api.md](lark-api.m
 
 ## WebSocket Runtime Direction
 
-The current WebSocket event loop is intentionally conservative. It owns one connection, sends application-level heartbeat pings only while waiting for the next event, then runs the user handler and sends the ACK. It does not drive connection heartbeats while a handler future is running, because the current `EventConnection` API serializes receive, heartbeat, and ACK writes through one mutable connection.
+The current WebSocket event loop is intentionally conservative. It owns one connection, sends application-level heartbeat pings only while waiting for the next event, then runs the user handler and sends the ACK. Internally, the receive/reassembly path, handler dispatch/ACK policy, and protocol write facade are separated so the responsibilities are clear. They still run over one mutable connection, so the loop does not drive connection heartbeats while a handler future is running.
 
 The target runtime model should use a connection runtime that owns the WebSocket lifecycle. A receive loop should read data and control frames and publish parsed events. A heartbeat loop should schedule application-level heartbeat pings from the latest endpoint-provided client configuration. A reconnect controller should own connection replacement and restart the runtime after reconnectable failures. A serialized writer path should be the only component allowed to write protocol frames such as ACK, heartbeat, and close frames. User handlers should receive parsed events and return ACK policy without owning the connection. That model would allow long-running handlers and connection heartbeats to coexist without competing for the same mutable connection.
 
@@ -90,7 +90,7 @@ Milestone 0 is complete when the scaffold is reviewable and the repository has e
 - Timer-driven heartbeat and reconnect refinements
 - Split-packet reassembly for large long-connection events and callbacks with `sum > 1`
 - Minimal echo bot example (#20)
-- WebSocket runtime refactor with separate receive, heartbeat, reconnect, and writer responsibilities
+- WebSocket runtime refactor with internal receive/reassembly, dispatch/ACK, and protocol writer boundaries while heartbeat and reconnect remain loop-orchestrated
 
 ## Milestone 4: Message Normalization
 

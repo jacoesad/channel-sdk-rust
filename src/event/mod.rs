@@ -12,6 +12,8 @@ mod consumer;
 mod r#loop;
 #[cfg(feature = "websocket")]
 mod reassembly;
+#[cfg(feature = "websocket")]
+mod runtime;
 
 #[cfg(feature = "websocket")]
 pub use consumer::{EventConnection, EventConnectionItem, EventConsumer, ReceivedEvent};

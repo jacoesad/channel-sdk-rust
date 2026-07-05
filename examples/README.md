@@ -116,7 +116,7 @@ cargo run --example ws_event_loop --features websocket
 
 The example uses local reconnect defaults (`LARK_WS_MAX_RECONNECTS=3`, `LARK_WS_RECONNECT_DELAY_MS=1000`) so local smoke tests terminate predictably. Set `LARK_WS_USE_SERVER_RECONNECT_CONFIG=true` to follow endpoint-provided reconnect policy instead. Set `LARK_WS_HEARTBEAT_TIMEOUT_MS` to enable an optional liveness watchdog after application-level heartbeat pings sent while waiting for events.
 
-The loop responds to WebSocket ping frames through the underlying connection and sends the official application-level heartbeat ping while waiting for events. Handler futures are awaited without driving connection heartbeats; keep handlers short or spawn long-running work outside the loop. Heartbeat send failures and optional heartbeat liveness timeouts are treated as reconnectable transport errors. `EventLoop` reassembles split packets before invoking handlers; richer dispatch policy is still follow-up work.
+The loop responds to WebSocket ping frames through the underlying connection and sends the official application-level heartbeat ping while waiting for events. Handler futures are awaited without driving connection heartbeats; keep handlers short or spawn long-running work outside the loop. Heartbeat send failures and optional heartbeat liveness timeouts are treated as reconnectable transport errors. `EventLoop` reassembles split packets before invoking handlers and keeps receive, dispatch, and protocol writes as separate internal runtime responsibilities; independently driven heartbeat and writer tasks remain follow-up work.
 
 ## Minimal echo bot
 

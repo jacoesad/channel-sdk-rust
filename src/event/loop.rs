@@ -1,17 +1,18 @@
 use std::future::Future;
 use std::time::Duration;
 
-use tokio::time::Instant as TokioInstant;
-
 use crate::lark_openapi::{
     OpenApiClient, OpenApiTransport, TokioTungsteniteWebSocketTransport, WebSocketClientConfig,
     WebSocketConnection, WebSocketEndpoint, WebSocketEventAck,
 };
 use crate::{Error, Result};
 
-use super::consumer::parse_channel_event_or_ack_parse_error;
-use super::reassembly::{EventPacketReassembler, EventPacketReassemblyOptions};
-use super::{EventConnection, EventConnectionItem, ReceivedEvent};
+use super::reassembly::EventPacketReassemblyOptions;
+use super::runtime::{
+    EventRuntimeDispatchOutcome, EventRuntimeDispatcher, EventRuntimeReceiveOptions,
+    EventRuntimeReceiver, is_reconnectable,
+};
+use super::{EventConnection, ReceivedEvent};
 
 pub trait EventStreamConnector {
     type Connection: EventConnection;
@@ -294,10 +295,6 @@ where
     }
 }
 
-fn is_reconnectable(error: &Error) -> bool {
-    matches!(error, Error::Transport(_))
-}
-
 enum ConnectionExit {
     Closed,
     ReconnectableError(Error),
@@ -313,18 +310,13 @@ where
     H: FnMut(ReceivedEvent) -> F,
     F: Future<Output = Result<WebSocketEventAck>> + Send,
 {
-    let mut heartbeat = HeartbeatSchedule::new(connection.heartbeat_interval());
-    let mut reassembler = EventPacketReassembler::new(options.reassembly_options());
+    let receive_options =
+        EventRuntimeReceiveOptions::new(options.heartbeat_timeout(), options.reassembly_options());
+    let mut receiver = EventRuntimeReceiver::new(connection, receive_options);
+    let mut dispatcher = EventRuntimeDispatcher::new();
 
     loop {
-        let Some((frame, event)) = (match next_reassembled_websocket_event_with_heartbeat(
-            connection,
-            &mut heartbeat,
-            options.heartbeat_timeout(),
-            &mut reassembler,
-        )
-        .await
-        {
+        let Some((frame, event)) = (match receiver.next_event(connection).await {
             Ok(event) => event,
             Err(error) if is_reconnectable(&error) => {
                 return Ok(ConnectionExit::ReconnectableError(error));
@@ -334,52 +326,14 @@ where
             return Ok(ConnectionExit::Closed);
         };
 
-        let started = std::time::Instant::now();
-        let channel_event =
-            match parse_channel_event_or_ack_parse_error(connection, &frame, &event, || {
-                WebSocketEventAck::internal_server_error().with_biz_rt(elapsed_millis(started))
-            })
-            .await
-            {
-                Ok(channel_event) => channel_event,
-                Err(error) if is_reconnectable(&error) => {
-                    return Ok(ConnectionExit::ReconnectableError(error));
-                }
-                Err(error) => return Err(error),
-            };
-        let received =
-            ReceivedEvent::from_parsed_websocket_event(frame.clone(), event, channel_event);
-        let ack = match handler(received).await {
-            Ok(ack) => ack,
-            Err(error) => {
-                if let Err(ack_error) = connection
-                    .ack_websocket_event(
-                        &frame,
-                        WebSocketEventAck::internal_server_error()
-                            .with_biz_rt(elapsed_millis(started)),
-                    )
-                    .await
-                {
-                    return if is_reconnectable(&ack_error) {
-                        Ok(ConnectionExit::ReconnectableError(ack_error))
-                    } else {
-                        Err(ack_error)
-                    };
-                }
-                return Err(error);
+        match dispatcher
+            .dispatch_event(connection, handler, frame, event)
+            .await?
+        {
+            EventRuntimeDispatchOutcome::Handled => {}
+            EventRuntimeDispatchOutcome::ReconnectableError(error) => {
+                return Ok(ConnectionExit::ReconnectableError(error));
             }
-        };
-        let ack = if ack.biz_rt().is_none() {
-            ack.with_biz_rt(elapsed_millis(started))
-        } else {
-            ack
-        };
-        if let Err(error) = connection.ack_websocket_event(&frame, ack).await {
-            return if is_reconnectable(&error) {
-                Ok(ConnectionExit::ReconnectableError(error))
-            } else {
-                Err(error)
-            };
         }
     }
 }
@@ -447,163 +401,6 @@ fn reconnect_jitter(max: Duration) -> Duration {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     Duration::from_millis(u64::from(now.subsec_nanos()) % max_millis.saturating_add(1))
-}
-
-struct HeartbeatSchedule {
-    interval: Option<Duration>,
-    deadline: Option<TokioInstant>,
-    liveness_deadline: Option<TokioInstant>,
-}
-
-impl HeartbeatSchedule {
-    fn new(interval: Option<Duration>) -> Self {
-        Self {
-            interval,
-            deadline: interval.map(|interval| TokioInstant::now() + interval),
-            liveness_deadline: None,
-        }
-    }
-
-    fn refresh_interval(&mut self, interval: Option<Duration>) {
-        if self.interval == interval {
-            return;
-        }
-        self.interval = interval;
-        self.deadline = interval.map(|interval| TokioInstant::now() + interval);
-    }
-
-    fn mark_heartbeat_sent(&mut self, interval: Option<Duration>) {
-        self.interval = interval;
-        self.deadline = interval.map(|interval| TokioInstant::now() + interval);
-    }
-
-    fn mark_activity(&mut self, interval: Option<Duration>) {
-        self.liveness_deadline = None;
-        self.refresh_interval(interval);
-    }
-
-    fn mark_heartbeat_sent_with_timeout(
-        &mut self,
-        interval: Option<Duration>,
-        heartbeat_timeout: Option<Duration>,
-    ) {
-        self.mark_heartbeat_sent(interval);
-        if self.liveness_deadline.is_none() {
-            self.liveness_deadline = heartbeat_timeout.map(|timeout| TokioInstant::now() + timeout);
-        }
-    }
-
-    fn next_deadline(&self) -> Option<HeartbeatDeadline> {
-        if let Some(liveness) = self.liveness_deadline {
-            return Some(HeartbeatDeadline::Liveness(liveness));
-        }
-        self.deadline.map(HeartbeatDeadline::Heartbeat)
-    }
-}
-
-enum HeartbeatDeadline {
-    Heartbeat(TokioInstant),
-    Liveness(TokioInstant),
-}
-
-impl HeartbeatDeadline {
-    fn instant(&self) -> TokioInstant {
-        match self {
-            Self::Heartbeat(instant) | Self::Liveness(instant) => *instant,
-        }
-    }
-}
-
-async fn next_websocket_event_with_heartbeat<C>(
-    connection: &mut C,
-    heartbeat: &mut HeartbeatSchedule,
-    heartbeat_timeout: Option<Duration>,
-) -> Result<
-    Option<(
-        crate::lark_openapi::WebSocketEventFrame,
-        crate::lark_openapi::WebSocketEvent,
-    )>,
->
-where
-    C: EventConnection + Send,
-{
-    loop {
-        heartbeat.refresh_interval(connection.heartbeat_interval());
-
-        let Some(deadline) = heartbeat.next_deadline() else {
-            return match connection.next_websocket_item().await? {
-                EventConnectionItem::Event(frame, event) => {
-                    heartbeat.mark_activity(connection.heartbeat_interval());
-                    Ok(Some((frame, *event)))
-                }
-                EventConnectionItem::Activity => {
-                    heartbeat.mark_activity(connection.heartbeat_interval());
-                    continue;
-                }
-                EventConnectionItem::Closed => Ok(None),
-            };
-        };
-
-        match tokio::time::timeout_at(deadline.instant(), connection.next_websocket_item()).await {
-            Ok(item) => match item? {
-                EventConnectionItem::Event(frame, event) => {
-                    heartbeat.mark_activity(connection.heartbeat_interval());
-                    return Ok(Some((frame, *event)));
-                }
-                EventConnectionItem::Activity => {
-                    heartbeat.mark_activity(connection.heartbeat_interval());
-                }
-                EventConnectionItem::Closed => return Ok(None),
-            },
-            Err(_) if matches!(deadline, HeartbeatDeadline::Liveness(_)) => {
-                return Err(Error::Transport("websocket heartbeat timed out".to_owned()));
-            }
-            Err(_) => {
-                connection.send_heartbeat().await?;
-                heartbeat.mark_heartbeat_sent_with_timeout(
-                    connection.heartbeat_interval(),
-                    heartbeat_timeout,
-                );
-            }
-        }
-    }
-}
-
-async fn next_reassembled_websocket_event_with_heartbeat<C>(
-    connection: &mut C,
-    heartbeat: &mut HeartbeatSchedule,
-    heartbeat_timeout: Option<Duration>,
-    reassembler: &mut EventPacketReassembler,
-) -> Result<
-    Option<(
-        crate::lark_openapi::WebSocketEventFrame,
-        crate::lark_openapi::WebSocketEvent,
-    )>,
->
-where
-    C: EventConnection + Send,
-{
-    loop {
-        let Some((frame, event)) =
-            next_websocket_event_with_heartbeat(connection, heartbeat, heartbeat_timeout).await?
-        else {
-            return Ok(None);
-        };
-        match reassembler.push(frame.clone(), event) {
-            Ok(Some(event)) => return Ok(Some(event)),
-            Ok(None) => {}
-            Err(error) => {
-                connection
-                    .ack_websocket_event(&frame, WebSocketEventAck::internal_server_error())
-                    .await?;
-                return Err(error);
-            }
-        }
-    }
-}
-
-fn elapsed_millis(started: std::time::Instant) -> u64 {
-    started.elapsed().as_millis().min(u64::MAX as u128) as u64
 }
 
 #[cfg(test)]
