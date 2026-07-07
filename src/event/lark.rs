@@ -545,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_lark_message_type_preserves_metadata_and_content() {
+    fn parses_lark_image_message_resource_descriptor() {
         let payload = json!({
             "schema": "2.0",
             "header": {
@@ -590,6 +590,48 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_lark_message_type_preserves_metadata_and_content() {
+        let payload = json!({
+            "schema": "2.0",
+            "header": {
+                "event_id": "event_custom_1",
+                "event_type": "im.message.receive_v1"
+            },
+            "event": {
+                "sender": {
+                    "sender_id": {
+                        "open_id": "ou_sender"
+                    },
+                    "sender_type": "user"
+                },
+                "message": {
+                    "message_id": "om_custom",
+                    "chat_id": "oc_1",
+                    "chat_type": "group",
+                    "message_type": "custom_widget",
+                    "content": "{\"custom_key\":\"custom_value\"}"
+                }
+            }
+        });
+
+        let event = parse_lark_event_payload(payload.to_string().as_bytes()).expect("event");
+        let ChannelEvent::Message(message) = event else {
+            panic!("expected message event");
+        };
+
+        assert_eq!(message.message_id, "om_custom");
+        assert_eq!(message.message_type, "custom_widget");
+        assert_eq!(message.text, "");
+        assert_eq!(message.raw_content, "{\"custom_key\":\"custom_value\"}");
+        assert_eq!(
+            message.content.as_ref().expect("content")["custom_key"],
+            "custom_value"
+        );
+        assert!(message.resources.is_empty());
+        assert_eq!(message.raw["header"]["event_type"], "im.message.receive_v1");
+    }
+
+    #[test]
     fn malformed_lark_message_content_does_not_drop_receive_event() {
         let payload = json!({
             "schema": "2.0",
@@ -628,6 +670,44 @@ mod tests {
             message.raw["event"]["message"]["content"],
             "{not valid json"
         );
+    }
+
+    #[test]
+    fn missing_lark_message_content_does_not_drop_receive_event() {
+        let payload = json!({
+            "schema": "2.0",
+            "header": {
+                "event_id": "event_missing_content_1",
+                "event_type": "im.message.receive_v1"
+            },
+            "event": {
+                "sender": {
+                    "sender_id": {
+                        "open_id": "ou_sender"
+                    },
+                    "sender_type": "user"
+                },
+                "message": {
+                    "message_id": "om_missing_content",
+                    "chat_id": "oc_1",
+                    "message_type": "text"
+                }
+            }
+        });
+
+        let event = parse_lark_event_payload(payload.to_string().as_bytes()).expect("event");
+        let ChannelEvent::Message(message) = event else {
+            panic!("expected message event");
+        };
+
+        assert_eq!(message.message_id, "om_missing_content");
+        assert_eq!(message.chat_type, MessageChatType::Unknown);
+        assert_eq!(message.message_type, "text");
+        assert_eq!(message.text, "");
+        assert_eq!(message.raw_content, "");
+        assert_eq!(message.content, None);
+        assert!(message.resources.is_empty());
+        assert!(message.raw["event"]["message"].get("content").is_none());
     }
 
     #[test]
