@@ -113,7 +113,7 @@ fn parse_post_mentions(content: Option<&Value>) -> Vec<MessageMention> {
         return Vec::new();
     };
 
-    let Some(content) = document.get("content").and_then(Value::as_array) else {
+    let Some(content) = post_text_content(document) else {
         return Vec::new();
     };
 
@@ -160,7 +160,7 @@ fn parse_post_resources(message_id: &str, content: &Value) -> Vec<ResourceDescri
 }
 
 fn select_post_document(value: &Value) -> Option<&Value> {
-    if is_post_document(value) {
+    if has_legacy_post_content(value) {
         return Some(value);
     }
 
@@ -170,6 +170,10 @@ fn select_post_document(value: &Value) -> Option<&Value> {
         }
     }
 
+    if has_content_v2(value) {
+        return Some(value);
+    }
+
     value
         .as_object()?
         .values()
@@ -177,9 +181,16 @@ fn select_post_document(value: &Value) -> Option<&Value> {
 }
 
 fn is_post_document(value: &Value) -> bool {
+    has_legacy_post_content(value) || has_content_v2(value)
+}
+
+fn has_legacy_post_content(value: &Value) -> bool {
     value.get("title").and_then(Value::as_str).is_some()
         || value.get("content").and_then(Value::as_array).is_some()
-        || value.get("content_v2").and_then(Value::as_array).is_some()
+}
+
+fn has_content_v2(value: &Value) -> bool {
+    value.get("content_v2").and_then(Value::as_array).is_some()
 }
 
 fn post_document_text(document: &Value) -> String {
@@ -191,7 +202,7 @@ fn post_document_text(document: &Value) -> String {
         }
     }
 
-    if let Some(content) = document.get("content").and_then(Value::as_array) {
+    if let Some(content) = post_text_content(document) {
         lines.extend(
             content
                 .iter()
@@ -201,6 +212,24 @@ fn post_document_text(document: &Value) -> String {
     }
 
     lines.join("\n")
+}
+
+fn post_text_content(document: &Value) -> Option<&[Value]> {
+    let content = document.get("content").and_then(Value::as_array);
+    if let Some(lines) = content {
+        if !lines.is_empty() {
+            return Some(lines.as_slice());
+        }
+    }
+
+    let content_v2 = document.get("content_v2").and_then(Value::as_array);
+    if let Some(lines) = content_v2 {
+        if !lines.is_empty() {
+            return Some(lines.as_slice());
+        }
+    }
+
+    content.map(Vec::as_slice)
 }
 
 fn post_line_text(line: &Value) -> Option<String> {
@@ -656,6 +685,41 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_content_v2_only_post_text_and_mentions() {
+        let content = json!({
+            "title": "Post title",
+            "content_v2": [
+                [
+                    {
+                        "tag": "text",
+                        "text": "hello "
+                    },
+                    {
+                        "tag": "at",
+                        "user_id": "ou_bot",
+                        "user_name": "Bot"
+                    },
+                    {
+                        "tag": "a",
+                        "text": " docs",
+                        "href": "https://example.test"
+                    }
+                ]
+            ]
+        });
+
+        assert_eq!(
+            normalize_message_text("post", Some(&content), &[]),
+            "Post title\nhello @Bot docs"
+        );
+
+        let mentions = normalize_message_mentions("post", Some(&content), Vec::new());
+        assert_eq!(mentions.len(), 1);
+        assert_eq!(mentions[0].open_id, "ou_bot");
+        assert_eq!(mentions[0].name.as_deref(), Some("Bot"));
+    }
+
+    #[test]
     fn deduplicates_lark_post_mentions_against_event_metadata() {
         let content = json!({
             "title": "",
@@ -731,6 +795,32 @@ mod tests {
                     }
                 ]]
             },
+            "zh_cn": {
+                "title": "中文",
+                "content": [[
+                    {
+                        "tag": "text",
+                        "text": "你好"
+                    }
+                ]]
+            }
+        });
+
+        assert_eq!(
+            normalize_message_text("post", Some(&content), &[]),
+            "中文\n你好"
+        );
+    }
+
+    #[test]
+    fn preferred_locale_wins_over_top_level_content_v2() {
+        let content = json!({
+            "content_v2": [[
+                {
+                    "tag": "text",
+                    "text": "top level fallback"
+                }
+            ]],
             "zh_cn": {
                 "title": "中文",
                 "content": [[
