@@ -6,7 +6,9 @@ use crate::message::{
 };
 use crate::{Error, Result};
 
-use super::message_normalization::{normalize_message_mentions, normalize_message_text};
+use super::message_normalization::{
+    normalize_message_mentions, normalize_message_resources, normalize_message_text,
+};
 use super::{
     CardActionContext, CardActionEvent, CardActionOperator, CardActionPayload, ChannelEvent,
     EventContext,
@@ -96,6 +98,11 @@ impl LarkMessageReceiveEvent {
             content.parsed.as_ref(),
             &event_mentions,
         );
+        let resources = normalize_message_resources(
+            &self.message.message_id,
+            &self.message.message_type,
+            content.parsed.as_ref(),
+        );
 
         NormalizedMessage {
             message_id: self.message.message_id,
@@ -116,6 +123,7 @@ impl LarkMessageReceiveEvent {
             parent_id: empty_string_as_none(self.message.parent_id),
             thread_id: empty_string_as_none(self.message.thread_id),
             mentions,
+            resources,
             raw,
         }
     }
@@ -409,6 +417,7 @@ mod tests {
     use super::parse_lark_event_payload;
     use crate::Error;
     use crate::event::ChannelEvent;
+    use crate::media::ResourceType;
     use crate::message::{MessageChatType, MessageSenderType};
 
     #[test]
@@ -573,6 +582,10 @@ mod tests {
             message.content.as_ref().expect("content")["image_key"],
             "img_v2_1"
         );
+        assert_eq!(message.resources.len(), 1);
+        assert_eq!(message.resources[0].message_id, "om_image");
+        assert_eq!(message.resources[0].resource_type, ResourceType::Image);
+        assert_eq!(message.resources[0].image_key.as_deref(), Some("img_v2_1"));
         assert_eq!(message.raw["header"]["event_type"], "im.message.receive_v1");
     }
 

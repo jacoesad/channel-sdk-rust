@@ -60,13 +60,25 @@ fn print_received_event(event: &lark_channel::ReceivedEvent) {
     match &event.event {
         ChannelEvent::Message(message) => {
             println!(
-                "message event parsed: chat_id={}, chat_type={:?}, sender={}, text={:?}, mentions={}",
+                "message event parsed: chat_id={}, chat_type={:?}, sender={}, type={}, text={:?}, mentions={}, resources={}",
                 message.chat_id,
                 message.chat_type,
                 message.sender.open_id,
+                message.message_type,
                 message.text,
-                message.mentions.len()
+                message.mentions.len(),
+                message.resources.len()
             );
+            for resource in &message.resources {
+                println!(
+                    "resource descriptor: type={:?}, file_key={:?}, image_key={:?}, file_name={:?}, duration_ms={:?}",
+                    resource.resource_type,
+                    resource.file_key,
+                    resource.image_key,
+                    resource.file_name,
+                    resource.duration_ms
+                );
+            }
         }
         ChannelEvent::Unknown { context, .. } => {
             println!("event parsed as unknown: context={context:?}");

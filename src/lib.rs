@@ -26,6 +26,7 @@ pub use event::{
     EventLoopOptions, EventPacketReassemblyOptions, EventReconnectLimit, EventStreamConnector,
     OpenApiWebSocketEventConnector, ReceivedEvent, WebSocketEndpointConnector,
 };
+pub use media::{ResourceDescriptor, ResourceType};
 pub use message::{
     MessageBuilder, MessageChatType, MessageContent, MessageId, MessageMention,
     MessageReplyBuilder, MessageSender, MessageSenderInfo, MessageSenderOptions, MessageSenderType,

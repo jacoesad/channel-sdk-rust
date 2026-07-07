@@ -27,6 +27,7 @@ Inbound `im.message.receive_v1` event payloads can be parsed with `parse_lark_ev
 - parsed JSON message content as `content` when the original content is valid JSON
 - root, parent, and thread ids when present
 - structured mentions with mention key, open id, user id, union id, name, and mentioned type when provided by event metadata or supported rich-text `at` elements
+- lightweight resource descriptors for supported image, file, folder, audio, video, sticker, and rich-text resource elements
 - the raw event payload for unsupported or richer follow-up parsing
 
 For `message_type=text`, `text` is read from the parsed content `text` field. Mention placeholder keys such as `@_user_1` are replaced with `@name` when the event metadata provides a matching mention name. For `message_type=post`, `text` is derived from the selected post document title and supported inline elements. The current post normalization chooses `zh_cn`, then `en_us`, then `ja_jp`, then the first document-shaped locale block. It includes `text`, link text, and `@user_name` from `at` elements, joins post lines with newlines, and skips non-text resource elements such as images while keeping the full parsed `content` available.
@@ -35,7 +36,18 @@ Mentions from event metadata are treated as the authoritative source when presen
 
 Malformed message content does not drop an otherwise valid receive event. In that case `raw_content` preserves the exact content string, `content` is `None`, and `text` is empty. Unsupported message types still produce `ChannelEvent::Message` with message metadata and raw payload access; richer normalization remains follow-up work.
 
-Use `NormalizedMessage::mentions_bot(bot_open_id)` to decide whether a group message explicitly mentions the current bot. Media/resource descriptors and advanced rich-content rendering remain later normalization work.
+Use `NormalizedMessage::mentions_bot(bot_open_id)` to decide whether a group message explicitly mentions the current bot.
+
+`NormalizedMessage::resources` contains lightweight `ResourceDescriptor` values when a supported message content shape exposes a resource key:
+
+- `image`: `image_key`
+- `file` and `folder`: `file_key` and `file_name`
+- `audio`: `file_key` and `duration_ms`
+- `media`: `file_key`, optional cover `image_key`, `file_name`, and `duration_ms`
+- `sticker`: `file_key`
+- `post`: embedded `img` and `media` elements from `content` or `content_v2`
+
+These descriptors are metadata only. Download/upload helpers remain later media work, and some resource types have official platform limits; for example, folders and stickers expose keys but are not downloadable through the same file APIs.
 
 Card action callback payloads with event type `card.action.trigger` are parsed as `ChannelEvent::CardAction`. The current model exposes the operator ids, callback update token, action value, form/input/select values, host metadata, open message id, open chat id, and raw payload. Responding to a card callback or updating the card content remains later card-helper work.
 

@@ -88,6 +88,8 @@ WebSocket ping frames are answered by `WebSocketConnection`, and the event loop 
 - `card.action.trigger` -> `ChannelEvent::CardAction`
 - other event types -> `ChannelEvent::Unknown`
 
+For received messages, resource descriptors are derived from the official received-message content shapes documented in [接收消息内容结构](https://open.feishu.cn/document/server-docs/im-v1/message-content-description/message_content.md): top-level `image`, `file`, `folder`, `audio`, `media`, and `sticker` messages, plus embedded `img` and `media` elements inside rich-text `post` content.
+
 `ChannelEvent::CardAction` preserves the full raw callback payload and exposes the bridge-critical card interaction fields:
 
 - `context`: event id, tenant key, and create time from the callback header

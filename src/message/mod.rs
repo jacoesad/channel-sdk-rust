@@ -1,6 +1,8 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
+use crate::media::ResourceDescriptor;
+
 mod sender;
 
 pub use sender::{MessageBuilder, MessageReplyBuilder, MessageSender, MessageSenderOptions};
@@ -94,6 +96,8 @@ pub struct NormalizedMessage {
     pub thread_id: Option<String>,
     #[serde(default, deserialize_with = "deserialize_mentions")]
     pub mentions: Vec<MessageMention>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resources: Vec<ResourceDescriptor>,
     #[serde(default)]
     pub raw: Value,
 }
@@ -163,6 +167,7 @@ mod tests {
         assert_eq!(message.raw_content, "");
         assert_eq!(message.content, None);
         assert_eq!(message.mentions.len(), 1);
+        assert!(message.resources.is_empty());
         assert_eq!(message.mentions[0].open_id, "ou_bot");
         assert_eq!(
             message.mentions[0].mentioned_type,
@@ -213,6 +218,7 @@ mod tests {
                 name: None,
                 mentioned_type: MessageSenderType::Unknown,
             }],
+            resources: Vec::new(),
             raw: Value::Null,
         };
 
