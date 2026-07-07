@@ -14,7 +14,7 @@ Milestone 0 established the repository and public crate shape:
 - A `ChannelClient` trait for future transport implementations
 - CI for formatting, clippy, and tests
 
-The project has completed Milestone 3 with WebSocket endpoint discovery, a raw connection foundation, event frame parsing, explicit event acknowledgement, inbound message parsing, card action callback parsing, a single-connection event consumer, a reconnecting event loop, timer-driven application heartbeat, split-packet event reassembly, a minimal echo bot example, and the first internal runtime boundaries for receive/reassembly, dispatch, and protocol writes. It still does not implement full message normalization, card helpers, or media transfer yet.
+The project has completed Milestone 3 with WebSocket endpoint discovery, a raw connection foundation, event frame parsing, explicit event acknowledgement, inbound message parsing, card action callback parsing, a single-connection event consumer, a reconnecting event loop, timer-driven application heartbeat, split-packet event reassembly, a minimal echo bot example, and the first internal runtime boundaries for receive/reassembly, dispatch, and protocol writes. Milestone 4 now adds the bridge-facing normalized message contract for common inbound text, post, mention, unsupported, and resource-bearing messages. Card helpers and media transfer are still follow-up milestones.
 
 ## Architecture Boundary
 
