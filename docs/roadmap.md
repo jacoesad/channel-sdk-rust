@@ -14,7 +14,7 @@ Milestone 0 established the repository and public crate shape:
 - A `ChannelClient` trait for future transport implementations
 - CI for formatting, clippy, and tests
 
-The project has completed Milestone 3 with WebSocket endpoint discovery, a raw connection foundation, event frame parsing, explicit event acknowledgement, inbound message parsing, card action callback parsing, a single-connection event consumer, a reconnecting event loop, timer-driven application heartbeat, split-packet event reassembly, a minimal echo bot example, and the first internal runtime boundaries for receive/reassembly, dispatch, and protocol writes. Milestone 4 now adds the bridge-facing normalized message contract for common inbound text, post, mention, unsupported, and resource-bearing messages. Card helpers and media transfer are still follow-up milestones.
+The project has completed Milestone 4 with a bridge-facing normalized message contract for common inbound text, post, mention, unsupported, malformed-content, missing-content, and resource-bearing messages. Card helpers and media transfer are still follow-up milestones.
 
 ## Architecture Boundary
 
@@ -96,14 +96,14 @@ Milestone 0 is complete when the scaffold is reviewable and the repository has e
 
 Milestone 4 starts from the minimal inbound message parser delivered in Milestone 3. The goal is to make `NormalizedMessage` a stable bridge-facing contract for common Lark/Feishu message events while preserving raw payloads for fields and message types that are not normalized yet.
 
-- Stabilize the inbound `NormalizedMessage` contract for message ids, chat metadata, sender metadata, threading ids, message type, plain text, mentions, and raw payload access
-- Normalize text messages, including malformed or missing content handling
-- Normalize post/rich-text messages into bridge-usable plain text while preserving structured content for later rich rendering
-- Normalize mentions from message metadata and rich-text content where Lark/Feishu exposes enough identity information
-- Preserve unsupported message types as normalized message metadata plus raw payload instead of dropping or failing otherwise valid receive events
-- Add lightweight descriptors for common media/resource message events without implementing download/upload transfer helpers yet
-- Add fixture-based tests for supported and unsupported message types
-- Align semantics with `channel-sdk-node` where practical without blocking Rust API stabilization on exact parity
+- Stabilize the inbound `NormalizedMessage` contract for message ids, chat metadata, sender metadata, threading ids, message type, plain text, mentions, and raw payload access (#25)
+- Normalize text messages, including malformed or missing content handling (#26, #29)
+- Normalize post/rich-text messages into bridge-usable plain text while preserving structured content for later rich rendering (#26, #29)
+- Normalize mentions from message metadata and rich-text content where Lark/Feishu exposes enough identity information (#27, #29)
+- Preserve unsupported message types as normalized message metadata plus raw payload instead of dropping or failing otherwise valid receive events (#29)
+- Add lightweight descriptors for common media/resource message events without implementing download/upload transfer helpers yet (#28, #29)
+- Add fixture-based tests for supported and unsupported message types (#25, #26, #27, #28, #29)
+- Align semantics with `channel-sdk-node` where practical without blocking Rust API stabilization on exact parity (#25, #26, #27, #28, #29)
 
 ## Milestone 5: Rich Content, Cards, and Streaming Replies
 
