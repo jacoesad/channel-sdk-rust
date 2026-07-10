@@ -3,8 +3,10 @@ use serde_json::Value;
 
 use crate::media::ResourceDescriptor;
 
+mod post;
 mod sender;
 
+pub use post::{PostContent, PostContentBuilder, PostDocument, PostElement, PostStyle};
 pub use sender::{MessageBuilder, MessageReplyBuilder, MessageSender, MessageSenderOptions};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,6 +23,7 @@ pub enum Recipient {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MessageContent {
     Text { text: String },
+    Post { post: PostContent },
     Card { card: Value },
     Custom { msg_type: String, content: Value },
 }

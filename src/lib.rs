@@ -30,5 +30,6 @@ pub use media::{ResourceDescriptor, ResourceType};
 pub use message::{
     MessageBuilder, MessageChatType, MessageContent, MessageId, MessageMention,
     MessageReplyBuilder, MessageSender, MessageSenderInfo, MessageSenderOptions, MessageSenderType,
-    NormalizedMessage, Recipient,
+    NormalizedMessage, PostContent, PostContentBuilder, PostDocument, PostElement, PostStyle,
+    Recipient,
 };

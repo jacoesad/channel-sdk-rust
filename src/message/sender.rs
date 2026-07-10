@@ -8,6 +8,7 @@ use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::PostContent;
 use crate::lark_openapi::{
     MessageCreateOptions, MessageReplyOptions, OpenApiClient, OpenApiTransport,
 };
@@ -75,6 +76,20 @@ where
         self.message(recipient, MessageContent::Text { text: text.into() })
     }
 
+    /// Starts building a rich-text `post` message send operation.
+    pub fn post_message(&self, recipient: Recipient, post: PostContent) -> MessageBuilder<'_, T> {
+        self.message(recipient, MessageContent::Post { post })
+    }
+
+    /// Starts building a native Markdown `post` message send operation.
+    pub fn markdown_message(
+        &self,
+        recipient: Recipient,
+        markdown: impl Into<String>,
+    ) -> MessageBuilder<'_, T> {
+        self.post_message(recipient, PostContent::markdown(markdown))
+    }
+
     /// Starts building a message reply operation with caller-provided content.
     pub fn reply(
         &self,
@@ -101,6 +116,24 @@ where
             parent_message_id,
             MessageContent::Text { text: text.into() },
         )
+    }
+
+    /// Starts building a rich-text `post` reply operation.
+    pub fn post_reply(
+        &self,
+        parent_message_id: MessageId,
+        post: PostContent,
+    ) -> MessageReplyBuilder<'_, T> {
+        self.reply(parent_message_id, MessageContent::Post { post })
+    }
+
+    /// Starts building a native Markdown `post` reply operation.
+    pub fn markdown_reply(
+        &self,
+        parent_message_id: MessageId,
+        markdown: impl Into<String>,
+    ) -> MessageReplyBuilder<'_, T> {
+        self.post_reply(parent_message_id, PostContent::markdown(markdown))
     }
 
     async fn retry_transport_errors<F, Fut>(
@@ -476,6 +509,56 @@ mod tests {
         assert_eq!(calls[1].body["msg_type"], "custom");
         assert_eq!(calls[1].body["content"], r#"{"body":"hello"}"#);
         assert_eq!(calls[1].body["uuid"], "custom-uuid");
+    }
+
+    #[test]
+    fn markdown_message_uses_post_content_and_managed_uuid() {
+        let transport = FakeTransport::new(vec![
+            FakeResponse::http(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "tenant-token-1",
+                    "expire": 7200
+                }),
+            ),
+            FakeResponse::http(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "data": {
+                        "message_id": "om_markdown"
+                    }
+                }),
+            ),
+        ]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+        let sender = MessageSender::new(client);
+
+        let message_id = block_on(
+            sender
+                .markdown_message(
+                    Recipient::Chat("oc_123".to_owned()),
+                    "**hello** [docs](https://open.feishu.cn)",
+                )
+                .send(),
+        )
+        .expect("sent markdown message");
+
+        assert_eq!(message_id, MessageId("om_markdown".to_owned()));
+        let body = &transport.calls()[1].body;
+        assert_eq!(body["msg_type"], "post");
+        assert_eq!(
+            body["content"],
+            "{\"zh_cn\":{\"content\":[[{\"tag\":\"md\",\"text\":\"**hello** [docs](https://open.feishu.cn)\"}]]}}"
+        );
+        assert!(
+            body["uuid"]
+                .as_str()
+                .is_some_and(|uuid| uuid.starts_with("lc-"))
+        );
     }
 
     #[test]

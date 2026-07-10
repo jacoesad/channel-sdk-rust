@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use url::Url;
 
 use super::*;
-use crate::message::{MessageContent, MessageId, Recipient};
+use crate::message::{MessageContent, MessageId, PostContent, Recipient};
 use crate::{ChannelConfig, Error, Result};
 
 #[test]
@@ -222,6 +222,50 @@ fn create_message_posts_tenant_message() {
             "receive_id": "oc_123",
             "msg_type": "text",
             "content": "{\"text\":\"hello from rust\"}"
+        })
+    );
+}
+
+#[test]
+fn create_message_serializes_native_markdown_post_content() {
+    let transport = FakeTransport::new(vec![
+        HttpResponse::json(
+            200,
+            json!({
+                "code": 0,
+                "msg": "ok",
+                "tenant_access_token": "tenant-token-1",
+                "expire": 7200
+            }),
+        ),
+        HttpResponse::json(
+            200,
+            json!({
+                "code": 0,
+                "msg": "ok",
+                "data": {
+                    "message_id": "om_post"
+                }
+            }),
+        ),
+    ]);
+    let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+
+    let message_id = block_on(client.create_message(
+        Recipient::Chat("oc_123".to_owned()),
+        MessageContent::Post {
+            post: PostContent::markdown("**hello** [docs](https://open.feishu.cn)"),
+        },
+    ))
+    .expect("sent post message");
+
+    assert_eq!(message_id, MessageId("om_post".to_owned()));
+    assert_eq!(
+        transport.calls()[1].body,
+        json!({
+            "receive_id": "oc_123",
+            "msg_type": "post",
+            "content": "{\"zh_cn\":{\"content\":[[{\"tag\":\"md\",\"text\":\"**hello** [docs](https://open.feishu.cn)\"}]]}}"
         })
     );
 }

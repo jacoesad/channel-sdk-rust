@@ -33,6 +33,10 @@ name = "message_sender"
 required-features = ["reqwest-transport"]
 
 [[example]]
+name = "send_markdown"
+required-features = ["reqwest-transport"]
+
+[[example]]
 name = "ws_connect"
 required-features = ["reqwest-transport", "websocket"]
 

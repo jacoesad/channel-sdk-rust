@@ -24,6 +24,7 @@ Official docs:
 - [App Access Token](https://open.feishu.cn/document/server-docs/authentication-management/access-token/app_access_token_internal.md)
 - [Tenant Access Token](https://open.feishu.cn/document/server-docs/authentication-management/access-token/tenant_access_token_internal.md)
 - [Create Message](https://open.feishu.cn/document/server-docs/im-v1/message/create.md)
+- [Message Content](https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json.md)
 - [Reply Message](https://open.feishu.cn/document/server-docs/im-v1/message/reply.md)
 - [Receive Message](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive.md)
 - [Card Action Callback](https://open.feishu.cn/document/feishu-cards/card-callback-communication.md)
@@ -105,6 +106,7 @@ For received messages, resource descriptors are derived from the official receiv
 - `Recipient::Chat(chat_id)` -> `receive_id_type=chat_id`, `receive_id=<chat_id>`
 - `Recipient::User(open_id)` -> `receive_id_type=open_id`, `receive_id=<open_id>`
 - `MessageContent::Text` -> `msg_type=text`
+- `MessageContent::Post` -> `msg_type=post`
 - `MessageContent::Card` -> `msg_type=interactive`
 - `MessageContent::Custom` -> caller-provided `msg_type`
 - `content` is serialized as the JSON string required by the official API
@@ -114,6 +116,7 @@ For received messages, resource descriptors are derived from the official receiv
 
 - `MessageId` -> path field `{message_id}`
 - `MessageContent::Text` -> `msg_type=text`
+- `MessageContent::Post` -> `msg_type=post`
 - `MessageContent::Card` -> `msg_type=interactive`
 - `MessageContent::Custom` -> caller-provided `msg_type`
 - `content` is serialized as the JSON string required by the official API
