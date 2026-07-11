@@ -236,7 +236,11 @@ enum PostElementKind {
     #[serde(rename = "text")]
     Text {
         text: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "deserialize_optional_bool"
+        )]
         un_escape: Option<bool>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         style: Vec<PostStyle>,
@@ -411,6 +415,13 @@ fn validate_mention_id(user_id: String) -> Result<String> {
     Ok(user_id)
 }
 
+fn deserialize_optional_bool<'de, D>(deserializer: D) -> std::result::Result<Option<bool>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    bool::deserialize(deserializer).map(Some)
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -542,6 +553,11 @@ mod tests {
             }),
             json!({
                 "zh_cn": {
+                    "content": [[{ "tag": "text", "text": "hello", "un_escape": null }]]
+                }
+            }),
+            json!({
+                "zh_cn": {
                     "content": [[{ "tag": "a", "text": "docs", "href": "https://open.feishu.cn", "un_escape": true }]]
                 }
             }),
@@ -627,6 +643,7 @@ mod tests {
     fn standalone_element_deserialization_rejects_invalid_and_extra_fields() {
         for value in [
             json!({ "tag": "text", "text": "hello", "un_escape": "yes" }),
+            json!({ "tag": "text", "text": "hello", "un_escape": null }),
             json!({ "tag": "a", "text": "docs", "href": "not a URL" }),
             json!({ "tag": "at", "user_id": "invalid id" }),
             json!({ "tag": "md", "text": "hello", "href": 123 }),
