@@ -4,7 +4,8 @@ use url::Url;
 
 use crate::{Error, Result};
 
-use super::{Card, validate_element_id};
+use super::Card;
+use super::validation::validate_element_id;
 
 /// Supported visual styles for a CardKit button.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

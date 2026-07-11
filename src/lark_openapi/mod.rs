@@ -13,6 +13,8 @@ mod auth;
 mod card;
 mod message;
 mod response;
+#[cfg(test)]
+mod test_support;
 mod transport;
 mod ws;
 
