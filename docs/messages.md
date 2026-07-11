@@ -24,7 +24,7 @@ The SDK currently provides a high-level `MessageSender` for text and rich-text m
 
 Structured paragraphs use `PostElement` helpers for text, the optional boolean `un_escape` text flag, validated links, @user/@all mentions, and supported `PostStyle` values. Native `md` elements must occupy their own paragraph. Use `MessageContent::Custom` as the lower-level escape hatch for official post elements or future locale values that are not modeled yet.
 
-`MessageContent` is non-exhaustive. Downstream matches must include a wildcard arm so future message content types can be added without another source-breaking enum change. The `Post` variant is part of the planned `v0.5.0` milestone release rather than a `v0.4.x` patch.
+`MessageContent` is non-exhaustive. Downstream matches must include a wildcard arm so future message content types can be added without another source-breaking enum change. Its serde representation is not forward-compatible with unknown future variants: when persisted data or mixed-version deployments are involved, upgrade readers before writers. The `Post` variant is part of the planned `v0.5.0` milestone release rather than a `v0.4.x` patch.
 
 `MessageSender` automatically generates one idempotency key per logical send or reply and reuses it across conservative transport-failure retries. Callers that already have a stable upstream request, task, or event identifier can provide it through the per-call options. Caller-provided `uuid` values must be non-empty and at most 50 characters. `MessageSender` does not retry API errors, validation failures, or OpenAPI HTTP status errors.
 

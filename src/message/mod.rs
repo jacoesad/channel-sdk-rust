@@ -19,6 +19,11 @@ pub enum Recipient {
     User(String),
 }
 
+/// Outbound message content supported by the Channel SDK.
+///
+/// This enum is non-exhaustive because future releases may add content types.
+/// Its serde representation may add matching variants as well, so older readers
+/// are not guaranteed to deserialize data written by newer releases.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[non_exhaustive]

@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
-use serde_json::{Map, Value};
 use url::Url;
 
 use crate::{Error, Result};
@@ -216,186 +215,156 @@ impl PostContentBuilder {
 ///
 /// Use `MessageContent::Custom` for official post elements that are not yet
 /// modeled by these Channel helpers.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(transparent)]
-pub struct PostElement(Value);
+pub struct PostElement(PostElementKind);
+
+impl<'de> Deserialize<'de> for PostElement {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let element = Self(PostElementKind::deserialize(deserializer)?);
+        element.validate().map_err(D::Error::custom)?;
+        Ok(element)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "tag", deny_unknown_fields)]
+enum PostElementKind {
+    #[serde(rename = "text")]
+    Text {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        un_escape: Option<bool>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        style: Vec<PostStyle>,
+    },
+    #[serde(rename = "a")]
+    Link {
+        text: String,
+        href: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        style: Vec<PostStyle>,
+    },
+    #[serde(rename = "at")]
+    Mention {
+        user_id: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        style: Vec<PostStyle>,
+    },
+    #[serde(rename = "md")]
+    Markdown { text: String },
+}
 
 impl PostElement {
     /// Creates a plain text element.
     pub fn text(text: impl Into<String>) -> Self {
-        Self(object([
-            ("tag", Value::String("text".to_owned())),
-            ("text", Value::String(text.into())),
-        ]))
+        Self(PostElementKind::Text {
+            text: text.into(),
+            un_escape: None,
+            style: Vec::new(),
+        })
     }
 
     /// Creates a validated hyperlink element.
     pub fn link(text: impl Into<String>, href: impl Into<String>) -> Result<Self> {
         let href = href.into();
         Url::parse(&href)?;
-        Ok(Self(object([
-            ("tag", Value::String("a".to_owned())),
-            ("text", Value::String(text.into())),
-            ("href", Value::String(href)),
-        ])))
+        Ok(Self(PostElementKind::Link {
+            text: text.into(),
+            href,
+            style: Vec::new(),
+        }))
     }
 
     /// Creates an @ mention for an open_id, user_id, or union_id.
     pub fn mention(user_id: impl Into<String>) -> Result<Self> {
         let user_id = validate_mention_id(user_id.into())?;
-        Ok(Self(object([
-            ("tag", Value::String("at".to_owned())),
-            ("user_id", Value::String(user_id)),
-        ])))
+        Ok(Self(PostElementKind::Mention {
+            user_id,
+            style: Vec::new(),
+        }))
     }
 
     /// Creates an @all mention.
     pub fn mention_all() -> Self {
-        Self(object([
-            ("tag", Value::String("at".to_owned())),
-            ("user_id", Value::String("all".to_owned())),
-        ]))
+        Self(PostElementKind::Mention {
+            user_id: "all".to_owned(),
+            style: Vec::new(),
+        })
     }
 
     /// Creates a native Markdown element.
     pub fn markdown(markdown: impl Into<String>) -> Self {
-        Self(object([
-            ("tag", Value::String("md".to_owned())),
-            ("text", Value::String(markdown.into())),
-        ]))
+        Self(PostElementKind::Markdown {
+            text: markdown.into(),
+        })
     }
 
     /// Sets the official `un_escape` flag on a plain text element.
     pub fn with_unescape(mut self, unescape: bool) -> Result<Self> {
-        let Some(element) = self.0.as_object_mut() else {
-            return Err(Error::Validation(
-                "post element must be a JSON object".to_owned(),
-            ));
-        };
-        let is_text = element
-            .get("tag")
-            .and_then(Value::as_str)
-            .is_some_and(|tag| tag == "text");
-        if !is_text {
-            return Err(Error::Validation(
-                "post un_escape is only supported for text elements".to_owned(),
-            ));
+        match &mut self.0 {
+            PostElementKind::Text {
+                un_escape: value, ..
+            } => *value = Some(unescape),
+            _ => {
+                return Err(Error::Validation(
+                    "post un_escape is only supported for text elements".to_owned(),
+                ));
+            }
         }
-
-        element.insert("un_escape".to_owned(), Value::Bool(unescape));
         Ok(self)
     }
 
     /// Applies supported text styles to text, link, or mention elements.
     pub fn with_styles(mut self, styles: impl IntoIterator<Item = PostStyle>) -> Result<Self> {
-        let Some(element) = self.0.as_object_mut() else {
-            return Err(Error::Validation(
-                "post element must be a JSON object".to_owned(),
-            ));
+        let styles = styles.into_iter().collect::<Vec<_>>();
+        let target = match &mut self.0 {
+            PostElementKind::Text { style, .. }
+            | PostElementKind::Link { style, .. }
+            | PostElementKind::Mention { style, .. } => style,
+            PostElementKind::Markdown { .. } => {
+                return Err(Error::Validation(
+                    "post styles are only supported for text, link, and mention elements"
+                        .to_owned(),
+                ));
+            }
         };
-        let supports_style = element
-            .get("tag")
-            .and_then(Value::as_str)
-            .is_some_and(|tag| matches!(tag, "text" | "a" | "at"));
-        if !supports_style {
-            return Err(Error::Validation(
-                "post styles are only supported for text, link, and mention elements".to_owned(),
-            ));
-        }
-
-        let styles = styles
-            .into_iter()
-            .map(|style| Value::String(style.as_str().to_owned()))
-            .collect::<Vec<_>>();
         if !styles.is_empty() {
-            element.insert("style".to_owned(), Value::Array(styles));
+            *target = styles;
         }
         Ok(self)
     }
 
-    /// Returns the underlying official element JSON.
-    pub fn as_value(&self) -> &Value {
-        &self.0
-    }
-
-    /// Consumes the helper and returns the underlying official element JSON.
-    pub fn into_value(self) -> Value {
-        self.0
-    }
-
-    fn validate(&self) -> Result<&str> {
-        let element = self
-            .0
-            .as_object()
-            .ok_or_else(|| Error::Validation("post element must be a JSON object".to_owned()))?;
-        let tag = required_string(element, "tag", "post element")?;
-
-        if tag != "text" && element.contains_key("un_escape") {
-            return Err(Error::Validation(
-                "post un_escape is only supported for text elements".to_owned(),
-            ));
+    fn validate(&self) -> Result<&'static str> {
+        match &self.0 {
+            PostElementKind::Text { .. } => Ok("text"),
+            PostElementKind::Link { href, .. } => {
+                Url::parse(href)?;
+                Ok("a")
+            }
+            PostElementKind::Mention { user_id, .. } => {
+                validate_mention_id(user_id.clone())?;
+                Ok("at")
+            }
+            PostElementKind::Markdown { .. } => Ok("md"),
         }
-
-        match tag {
-            "text" => {
-                required_string(element, "text", "post text element")?;
-                if element
-                    .get("un_escape")
-                    .is_some_and(|unescape| !unescape.is_boolean())
-                {
-                    return Err(Error::Validation(
-                        "post text element `un_escape` must be a boolean".to_owned(),
-                    ));
-                }
-                validate_styles(element.get("style"))?;
-            }
-            "a" => {
-                required_string(element, "text", "post link element")?;
-                Url::parse(required_string(element, "href", "post link element")?)?;
-                validate_styles(element.get("style"))?;
-            }
-            "at" => {
-                let user_id = required_string(element, "user_id", "post mention element")?;
-                validate_mention_id(user_id.to_owned())?;
-                validate_styles(element.get("style"))?;
-            }
-            "md" => {
-                required_string(element, "text", "post markdown element")?;
-                if element.contains_key("style") {
-                    return Err(Error::Validation(
-                        "post markdown elements do not support styles".to_owned(),
-                    ));
-                }
-            }
-            _ => {
-                return Err(Error::Validation(format!(
-                    "unsupported typed post element tag: {tag}"
-                )));
-            }
-        }
-
-        Ok(tag)
     }
 }
 
 /// Text styles supported by Lark/Feishu structured post elements.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PostStyle {
+    #[serde(rename = "bold")]
     Bold,
+    #[serde(rename = "underline")]
     Underline,
+    #[serde(rename = "lineThrough")]
     LineThrough,
+    #[serde(rename = "italic")]
     Italic,
-}
-
-impl PostStyle {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Bold => "bold",
-            Self::Underline => "underline",
-            Self::LineThrough => "lineThrough",
-            Self::Italic => "italic",
-        }
-    }
 }
 
 fn validate_locale_and_document(locale: &str, document: &PostDocument) -> Result<String> {
@@ -428,36 +397,6 @@ fn validate_locale_and_document(locale: &str, document: &PostDocument) -> Result
     Ok(locale.to_owned())
 }
 
-fn required_string<'a>(
-    object: &'a Map<String, Value>,
-    field: &str,
-    context: &str,
-) -> Result<&'a str> {
-    object.get(field).and_then(Value::as_str).ok_or_else(|| {
-        Error::Validation(format!("{context} must contain a string `{field}` field"))
-    })
-}
-
-fn validate_styles(styles: Option<&Value>) -> Result<()> {
-    let Some(styles) = styles else {
-        return Ok(());
-    };
-    let styles = styles
-        .as_array()
-        .ok_or_else(|| Error::Validation("post element `style` must be an array".to_owned()))?;
-    if styles.iter().all(|style| {
-        style
-            .as_str()
-            .is_some_and(|style| matches!(style, "bold" | "underline" | "lineThrough" | "italic"))
-    }) {
-        Ok(())
-    } else {
-        Err(Error::Validation(
-            "post element contains an unsupported style".to_owned(),
-        ))
-    }
-}
-
 fn validate_mention_id(user_id: String) -> Result<String> {
     if user_id.trim().is_empty() {
         return Err(Error::Validation(
@@ -470,15 +409,6 @@ fn validate_mention_id(user_id: String) -> Result<String> {
         ));
     }
     Ok(user_id)
-}
-
-fn object<const N: usize>(entries: [(&str, Value); N]) -> Value {
-    Value::Object(
-        entries
-            .into_iter()
-            .map(|(key, value)| (key.to_owned(), value))
-            .collect::<Map<_, _>>(),
-    )
 }
 
 #[cfg(test)]
@@ -674,10 +604,12 @@ mod tests {
     #[test]
     fn unescape_is_only_available_as_a_boolean_on_text_elements() {
         assert_eq!(
-            PostElement::text("hello&nbsp;world")
-                .with_unescape(true)
-                .expect("text unescape")
-                .into_value(),
+            serde_json::to_value(
+                PostElement::text("hello&nbsp;world")
+                    .with_unescape(true)
+                    .expect("text unescape")
+            )
+            .expect("serialize text element"),
             json!({
                 "tag": "text",
                 "text": "hello&nbsp;world",
@@ -689,6 +621,19 @@ mod tests {
             Err(Error::Validation(message))
                 if message == "post un_escape is only supported for text elements"
         ));
+    }
+
+    #[test]
+    fn standalone_element_deserialization_rejects_invalid_and_extra_fields() {
+        for value in [
+            json!({ "tag": "text", "text": "hello", "un_escape": "yes" }),
+            json!({ "tag": "a", "text": "docs", "href": "not a URL" }),
+            json!({ "tag": "at", "user_id": "invalid id" }),
+            json!({ "tag": "md", "text": "hello", "href": 123 }),
+            json!({ "tag": "text", "text": "hello", "unknown": true }),
+        ] {
+            assert!(serde_json::from_value::<PostElement>(value).is_err());
+        }
     }
 
     #[test]
