@@ -8,11 +8,11 @@ use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::PostContent;
+use crate::card::{Card, CardId};
 use crate::lark_openapi::{
     MessageCreateOptions, MessageReplyOptions, OpenApiClient, OpenApiTransport,
 };
-use crate::{Error, MessageContent, MessageId, Recipient, Result};
+use crate::{Error, MessageContent, MessageId, PostContent, Recipient, Result};
 
 const MAX_OPENAPI_UUID_CHARS: usize = 50;
 static NEXT_IDEMPOTENCY_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -90,6 +90,27 @@ where
         self.post_message(recipient, PostContent::markdown(markdown))
     }
 
+    /// Starts building an inline CardKit message send operation.
+    pub fn card_message(&self, recipient: Recipient, card: Card) -> MessageBuilder<'_, T> {
+        self.message(
+            recipient,
+            MessageContent::Card {
+                card: card.into_value(),
+            },
+        )
+    }
+
+    /// Starts building a message that references a pre-created CardKit entity.
+    ///
+    /// A CardKit entity can only be sent once.
+    pub fn card_reference_message(
+        &self,
+        recipient: Recipient,
+        card_id: CardId,
+    ) -> MessageBuilder<'_, T> {
+        self.message(recipient, MessageContent::CardReference { card_id })
+    }
+
     /// Starts building a message reply operation with caller-provided content.
     pub fn reply(
         &self,
@@ -134,6 +155,31 @@ where
         markdown: impl Into<String>,
     ) -> MessageReplyBuilder<'_, T> {
         self.post_reply(parent_message_id, PostContent::markdown(markdown))
+    }
+
+    /// Starts building an inline CardKit reply operation.
+    pub fn card_reply(
+        &self,
+        parent_message_id: MessageId,
+        card: Card,
+    ) -> MessageReplyBuilder<'_, T> {
+        self.reply(
+            parent_message_id,
+            MessageContent::Card {
+                card: card.into_value(),
+            },
+        )
+    }
+
+    /// Starts building a reply that references a pre-created CardKit entity.
+    ///
+    /// A CardKit entity can only be sent once.
+    pub fn card_reference_reply(
+        &self,
+        parent_message_id: MessageId,
+        card_id: CardId,
+    ) -> MessageReplyBuilder<'_, T> {
+        self.reply(parent_message_id, MessageContent::CardReference { card_id })
     }
 
     async fn retry_transport_errors<F, Fut>(
@@ -610,6 +656,94 @@ mod tests {
                 .as_str()
                 .is_some_and(|uuid| uuid.starts_with("lc-"))
         );
+    }
+
+    #[test]
+    fn card_message_uses_validated_interactive_content() {
+        let transport = FakeTransport::new(vec![
+            FakeResponse::http(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "tenant-token-1",
+                    "expire": 7200
+                }),
+            ),
+            FakeResponse::http(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "data": { "message_id": "om_card" }
+                }),
+            ),
+        ]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+        let sender = MessageSender::new(client);
+        let card = Card::builder().markdown("**hello**").build().expect("card");
+
+        let message_id = block_on(
+            sender
+                .card_message(Recipient::Chat("oc_123".to_owned()), card)
+                .send(),
+        )
+        .expect("sent card");
+
+        assert_eq!(message_id, MessageId("om_card".to_owned()));
+        let body = &transport.calls()[1].body;
+        assert_eq!(body["msg_type"], "interactive");
+        let content: Value =
+            serde_json::from_str(body["content"].as_str().expect("content string"))
+                .expect("card json");
+        assert_eq!(content["schema"], "2.0");
+        assert_eq!(content["config"]["update_multi"], true);
+    }
+
+    #[test]
+    fn card_reference_reply_uses_card_entity_content_and_thread_option() {
+        let transport = FakeTransport::new(vec![
+            FakeResponse::http(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "tenant-token-1",
+                    "expire": 7200
+                }),
+            ),
+            FakeResponse::http(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "data": { "message_id": "om_card_reply" }
+                }),
+            ),
+        ]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+        let sender = MessageSender::new(client);
+
+        let message_id = block_on(
+            sender
+                .card_reference_reply(
+                    MessageId("om_parent".to_owned()),
+                    CardId::new("7355372766134157313").expect("card id"),
+                )
+                .reply_in_thread(true)
+                .send(),
+        )
+        .expect("replied with card reference");
+
+        assert_eq!(message_id, MessageId("om_card_reply".to_owned()));
+        let body = &transport.calls()[1].body;
+        assert_eq!(body["msg_type"], "interactive");
+        assert_eq!(body["reply_in_thread"], true);
+        let content: Value =
+            serde_json::from_str(body["content"].as_str().expect("content string"))
+                .expect("card reference json");
+        assert_eq!(content["type"], "card");
+        assert_eq!(content["data"]["card_id"], "7355372766134157313");
     }
 
     #[test]

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
+use crate::card::CardId;
 use crate::media::ResourceDescriptor;
 
 mod post;
@@ -31,6 +32,7 @@ pub enum MessageContent {
     Text { text: String },
     Post { post: PostContent },
     Card { card: Value },
+    CardReference { card_id: CardId },
     Custom { msg_type: String, content: Value },
 }
 

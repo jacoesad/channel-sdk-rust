@@ -10,6 +10,7 @@
 //! or an official Rust OpenAPI SDK adapter.
 
 mod auth;
+mod card;
 mod message;
 mod response;
 mod transport;
@@ -23,6 +24,7 @@ use serde::de::DeserializeOwned;
 use crate::{ChannelConfig, Result};
 
 pub use auth::{AppAccessTokenResponse, TenantAccessTokenResponse};
+pub use card::CardUpdateOptions;
 pub use message::{MessageCreateOptions, MessageReplyOptions};
 #[cfg(feature = "reqwest-transport")]
 pub use transport::ReqwestOpenApiTransport;
@@ -80,8 +82,36 @@ where
         B: Serialize + ?Sized,
         R: DeserializeOwned,
     {
+        self.tenant_json(HttpMethod::Post, path, body).await
+    }
+
+    /// Sends an authenticated tenant JSON request with HTTP PUT.
+    pub async fn put_tenant_json<B, R>(&self, path: &str, body: &B) -> Result<R>
+    where
+        B: Serialize + ?Sized,
+        R: DeserializeOwned,
+    {
+        self.tenant_json(HttpMethod::Put, path, body).await
+    }
+
+    /// Sends an authenticated tenant JSON request with HTTP PATCH.
+    pub async fn patch_tenant_json<B, R>(&self, path: &str, body: &B) -> Result<R>
+    where
+        B: Serialize + ?Sized,
+        R: DeserializeOwned,
+    {
+        self.tenant_json(HttpMethod::Patch, path, body).await
+    }
+
+    async fn tenant_json<B, R>(&self, method: HttpMethod, path: &str, body: &B) -> Result<R>
+    where
+        B: Serialize + ?Sized,
+        R: DeserializeOwned,
+    {
         let token = self.tenant_access_token().await?;
-        let request = self.post_json_request(path, body)?.with_bearer_auth(token);
+        let request = self
+            .json_request(method, path, body)?
+            .with_bearer_auth(token);
         let response = self.transport.send_json(request).await?;
         parse_openapi_response(response)
     }
@@ -90,9 +120,16 @@ where
     where
         B: Serialize + ?Sized,
     {
+        self.json_request(HttpMethod::Post, path, body)
+    }
+
+    fn json_request<B>(&self, method: HttpMethod, path: &str, body: &B) -> Result<HttpRequest>
+    where
+        B: Serialize + ?Sized,
+    {
         let url = self.config.base_url().join(path)?;
         let body = serde_json::to_value(body)?;
-        Ok(HttpRequest::post_json(url, body))
+        Ok(HttpRequest::json(method, url, body))
     }
 }
 

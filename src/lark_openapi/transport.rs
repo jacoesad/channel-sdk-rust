@@ -29,15 +29,20 @@ pub struct HttpRequest {
 }
 
 impl HttpRequest {
-    pub fn post_json(url: Url, body: Value) -> Self {
+    /// Creates a JSON request with the supplied HTTP method.
+    pub fn json(method: HttpMethod, url: Url, body: Value) -> Self {
         let mut headers = BTreeMap::new();
         headers.insert("content-type".to_owned(), "application/json".to_owned());
         Self {
-            method: HttpMethod::Post,
+            method,
             url,
             headers,
             body,
         }
+    }
+
+    pub fn post_json(url: Url, body: Value) -> Self {
+        Self::json(HttpMethod::Post, url, body)
     }
 
     pub fn with_bearer_auth(mut self, token: impl Into<String>) -> Self {
