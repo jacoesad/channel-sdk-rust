@@ -93,6 +93,32 @@ cargo run --example reply_text
 
 `LARK_MESSAGE_ID` is the parent message id to reply to. When the parent message belongs to a thread or topic, Lark/Feishu places the reply under that conversation context. `LARK_TEXT` is optional and defaults to a short reply. `LARK_UUID` is optional and is sent as the OpenAPI idempotency key when set. `LARK_REPLY_IN_THREAD` is optional and accepts `true`/`false`. The example prints the returned message id.
 
+## Send and update cards
+
+`cards.rs` builds a CardKit 2.0 card with common typed components and sends it through `MessageSender`.
+
+```bash
+export LARK_APP_ID=cli_xxx
+export LARK_APP_SECRET=xxx
+export LARK_CHAT_ID=oc_xxx
+cargo run --example cards
+```
+
+Set `LARK_UPDATE_CARD=true` to replace the sent inline card by `message_id`. The builder emits `config.update_multi=true`, which the official message-card update API requires on both the original and updated card.
+
+Use a CardKit entity when later component-level or streaming updates need a stable `card_id`:
+
+```bash
+export LARK_CARD_ENTITY=true
+export LARK_UPDATE_CARD=true
+export LARK_CARD_SEQUENCE=1
+# Optional CardKit update idempotency key:
+export LARK_CARD_UPDATE_UUID=card-update-1
+cargo run --example cards
+```
+
+CardKit entities can be sent once and remain valid for 14 days. Every operation on one entity must use a `sequence` greater than its previous CardKit operation; the SDK validates the documented integer range but the caller owns ordering across concurrent tasks or process restarts.
+
 ## WebSocket endpoint and connection
 
 `ws_connect.rs` requests the long-connection WebSocket endpoint. By default it prints redacted endpoint metadata only. Set `LARK_WS_CONNECT=1` to open the WebSocket connection and close it immediately. Add `LARK_WS_RECEIVE_ONCE=1` to wait for one event through `EventConsumer`, print parsed event metadata including resource descriptors, send an ACK, and close.

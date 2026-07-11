@@ -15,6 +15,9 @@ The selected domain comes from `ChannelConfig`:
 | Tenant Access Token | `POST /open-apis/auth/v3/tenant_access_token/internal` | `OpenApiClient::tenant_access_token` |
 | Create Message | `POST /open-apis/im/v1/messages` | `OpenApiClient::create_message` |
 | Reply Message | `POST /open-apis/im/v1/messages/{message_id}/reply` | `OpenApiClient::reply_message` |
+| Update Message Card | `PATCH /open-apis/im/v1/messages/{message_id}` | `OpenApiClient::update_message_card` |
+| Create Card Entity | `POST /open-apis/cardkit/v1/cards` | `OpenApiClient::create_card_entity` |
+| Full Update Card Entity | `PUT /open-apis/cardkit/v1/cards/{card_id}` | `OpenApiClient::update_card_entity` |
 | WebSocket Endpoint | `POST /callback/ws/endpoint` | `OpenApiClient::websocket_endpoint` |
 | Receive Message Event | WebSocket event `im.message.receive_v1` | `parse_lark_event_payload`, `ChannelEvent::parse_lark_payload` |
 | Card Action Callback | WebSocket callback `card.action.trigger` | `parse_lark_event_payload`, `ChannelEvent::parse_lark_payload` |
@@ -26,6 +29,9 @@ Official docs:
 - [Create Message](https://open.feishu.cn/document/server-docs/im-v1/message/create.md)
 - [Message Content](https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json.md)
 - [Reply Message](https://open.feishu.cn/document/server-docs/im-v1/message/reply.md)
+- [Update Message Card](https://open.feishu.cn/document/server-docs/im-v1/message-card/patch.md)
+- [Create Card Entity](https://open.feishu.cn/document/cardkit-v1/card/create.md)
+- [Full Update Card Entity](https://open.feishu.cn/document/cardkit-v1/card/update.md)
 - [Receive Message](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive.md)
 - [Card Action Callback](https://open.feishu.cn/document/feishu-cards/card-callback-communication.md)
 - [Use long connections to receive events](https://open.feishu.cn/document/server-docs/event-subscription-guide/event-subscription-configure-/request-url-configuration-case.md)
@@ -108,6 +114,7 @@ For received messages, resource descriptors are derived from the official receiv
 - `MessageContent::Text` -> `msg_type=text`
 - `MessageContent::Post` -> `msg_type=post`
 - `MessageContent::Card` -> `msg_type=interactive`
+- `MessageContent::CardReference` -> `msg_type=interactive` with a CardKit `card_id` reference
 - `MessageContent::Custom` -> caller-provided `msg_type`
 - `content` is serialized as the JSON string required by the official API
 - `uuid` comes from `MessageCreateOptions`
@@ -118,9 +125,23 @@ For received messages, resource descriptors are derived from the official receiv
 - `MessageContent::Text` -> `msg_type=text`
 - `MessageContent::Post` -> `msg_type=post`
 - `MessageContent::Card` -> `msg_type=interactive`
+- `MessageContent::CardReference` -> `msg_type=interactive` with a CardKit `card_id` reference
 - `MessageContent::Custom` -> caller-provided `msg_type`
 - `content` is serialized as the JSON string required by the official API
 - `uuid` and `reply_in_thread` come from `MessageReplyOptions`
+
+## Card Mapping
+
+`Card` represents validated CardKit JSON 2.0. `CardBuilder` emits `schema=2.0`, a shared-card `config.update_multi=true` setting, and common header/body components. `CardElement::raw` and `Card::from_value` preserve access to official CardKit fields and components that are not modeled by the convenience builder.
+
+Two update identities are intentionally distinct:
+
+- `OpenApiClient::update_message_card` targets the `message_id` returned after sending an inline card. The official endpoint requires `config.update_multi=true` on the card before and after the update.
+- `OpenApiClient::create_card_entity` returns a `CardId`. Send it with `MessageContent::CardReference` or the high-level `card_reference_message`/`card_reference_reply` helpers, then use `OpenApiClient::update_card_entity` for full replacements.
+
+CardKit entity updates require a strictly increasing positive `sequence` for every operation on the same card. `CardUpdateOptions` validates the documented `1..=2147483647` range and optional 64-character `uuid`, but sequence persistence and cross-task synchronization remain caller responsibilities. Card entities are valid for 14 days and can be sent once.
+
+Element-level CardKit updates, streaming-mode configuration, and callback-token response updates remain later Milestone 5 work.
 
 ## Error Handling
 
