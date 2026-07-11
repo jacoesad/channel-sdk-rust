@@ -183,6 +183,13 @@ impl TryFrom<MessageContent> for OpenApiMessageContent {
                 msg_type: "text".to_owned(),
                 content: serde_json::json!({ "text": text }),
             }),
+            MessageContent::Post { post } => {
+                post.validate()?;
+                Ok(Self {
+                    msg_type: "post".to_owned(),
+                    content: serde_json::to_value(post)?,
+                })
+            }
             MessageContent::Card { card } => Ok(Self {
                 msg_type: "interactive".to_owned(),
                 content: card,

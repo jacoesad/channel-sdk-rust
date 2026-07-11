@@ -1,20 +1,30 @@
 # Messages
 
-This document describes the message behavior currently exposed by `lark-channel`, including outbound text messages, replies, and minimal inbound message normalization.
+This document describes the message behavior currently exposed by `lark-channel`, including outbound text and rich-text messages, replies, and inbound message normalization.
 
 ## Current Scope
 
-The SDK currently provides a high-level `MessageSender` for text messages and replies:
+The SDK currently provides a high-level `MessageSender` for text and rich-text messages and replies:
 
 - `MessageSender::message`
 - `MessageSender::text_message`
+- `MessageSender::post_message`
+- `MessageSender::markdown_message`
 - `MessageSender::reply`
 - `MessageSender::text_reply`
+- `MessageSender::post_reply`
+- `MessageSender::markdown_reply`
 - `MessageSenderOptions`
 - `MessageBuilder`
 - `MessageReplyBuilder`
 
-`message` and `reply` accept caller-provided `MessageContent`. `text_message` and `text_reply` are convenience entry points for plain text content.
+`message` and `reply` accept caller-provided `MessageContent`. `text_message` and `text_reply` are convenience entry points for plain text content. `post_message` and `post_reply` accept typed `PostContent`; `markdown_message` and `markdown_reply` wrap Markdown in native rich-text content automatically.
+
+`PostContent::markdown` creates the official `post` shape with one `tag=md` element. Lark/Feishu renders the content according to the native Markdown syntax supported by the current platform and client, so the SDK does not maintain a separate Markdown parser. Consult the official message-content documentation for the current syntax and client-version limitations. `PostContent::text` creates a structured plain-text post, and `PostContentBuilder` can select the documented `zh_cn` or `en_us` locale, set a title, or append multiple Markdown and structured paragraphs.
+
+Structured paragraphs use `PostElement` helpers for text, the optional boolean `un_escape` text flag, validated links, @user/@all mentions, and supported `PostStyle` values. Native `md` elements must occupy their own paragraph. Use `MessageContent::Custom` as the lower-level escape hatch for official post elements or future locale values that are not modeled yet.
+
+`MessageContent` is non-exhaustive. Downstream matches must include a wildcard arm so future message content types can be added without another source-breaking enum change. Its serde representation is not forward-compatible with unknown future variants: when persisted data or mixed-version deployments are involved, upgrade readers before writers. The `Post` variant is part of the planned `v0.5.0` milestone release rather than a `v0.4.x` patch.
 
 `MessageSender` automatically generates one idempotency key per logical send or reply and reuses it across conservative transport-failure retries. Callers that already have a stable upstream request, task, or event identifier can provide it through the per-call options. Caller-provided `uuid` values must be non-empty and at most 50 characters. `MessageSender` does not retry API errors, validation failures, or OpenAPI HTTP status errors.
 
@@ -61,7 +71,7 @@ The loop sends the official application-level heartbeat ping at the endpoint-pro
 
 Lower-level raw message entry points are available under `lark_channel::lark_openapi` for callers that need to pass `MessageContent` directly. See [lark-api.md](lark-api.md) for the exact official API mappings.
 
-Rich mention composition, rich content builders, card helpers, media upload, and richer retry policies are planned follow-up work.
+Card helpers, media upload, streaming updates, and richer retry policies are planned follow-up work.
 
 Runnable examples are documented in [../examples/README.md](../examples/README.md), including low-level create/reply calls and the high-level `MessageSender` flow.
 
@@ -88,6 +98,39 @@ let sender = MessageSender::new(openapi);
 
 let message_id = sender
     .text_message(Recipient::Chat("oc_xxx".to_owned()), "hello")
+    .send()
+    .await?;
+```
+
+To send native Markdown rich text:
+
+```rust
+let message_id = sender
+    .markdown_message(
+        Recipient::Chat("oc_xxx".to_owned()),
+        "## Build status\n\n- **Passed**\n- [Details](https://example.com)",
+    )
+    .send()
+    .await?;
+```
+
+To compose structured links and mentions:
+
+```rust
+use lark_channel::{PostContent, PostElement, PostStyle};
+
+let post = PostContent::builder()
+    .title("Build status")
+    .paragraph([
+        PostElement::mention("ou_xxx")?,
+        PostElement::text(" see "),
+        PostElement::link("details", "https://example.com")?
+            .with_styles([PostStyle::Bold])?,
+    ])
+    .build()?;
+
+let message_id = sender
+    .post_message(Recipient::Chat("oc_xxx".to_owned()), post)
     .send()
     .await?;
 ```

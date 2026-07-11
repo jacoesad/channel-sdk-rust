@@ -59,6 +59,23 @@ Use `LARK_OPEN_ID=ou_xxx` instead of `LARK_CHAT_ID` to send a direct message to 
 
 `MessageSender` generates an idempotency key automatically and reuses it across transport-failure retries. Set `LARK_UUID` to provide a stable upstream key for process restarts or queue replays. `LARK_MAX_ATTEMPTS` is optional and defaults to `3`. The example prints the returned message id.
 
+## Send Markdown rich text
+
+`send_markdown.rs` sends Markdown as a Lark/Feishu `post` message through `MessageSender`. The Markdown is wrapped in the official native `md` element instead of being parsed by the SDK.
+
+```bash
+export LARK_APP_ID=cli_xxx
+export LARK_APP_SECRET=xxx
+export LARK_CHAT_ID=oc_xxx
+export LARK_MARKDOWN=$'## Build status\n\n- **Passed**\n- [Details](https://example.com)'
+# Optional post title and idempotency key:
+export LARK_TITLE="Agent update"
+export LARK_UUID=uuid_xxx
+cargo run --example send_markdown
+```
+
+Use `LARK_OPEN_ID=ou_xxx` instead of `LARK_CHAT_ID` to send a direct message. If both are set, `LARK_CHAT_ID` takes priority. `LARK_MARKDOWN` and `LARK_TITLE` are optional; the example prints the returned message id.
+
 ## Reply to a message
 
 `reply_text.rs` replies to an existing message with the default reqwest transport.
