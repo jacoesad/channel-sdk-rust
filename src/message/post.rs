@@ -7,6 +7,7 @@ use url::Url;
 use crate::{Error, Result};
 
 const DEFAULT_POST_LOCALE: &str = "zh_cn";
+const ENGLISH_POST_LOCALE: &str = "en_us";
 
 /// Lark/Feishu rich-text `post` message content.
 ///
@@ -52,7 +53,7 @@ impl PostContent {
         Self::for_locale(DEFAULT_POST_LOCALE, document)
     }
 
-    /// Creates content for a caller-selected locale.
+    /// Creates content for the documented `zh_cn` or `en_us` locale.
     pub fn for_locale(locale: impl Into<String>, document: PostDocument) -> Result<Self> {
         let locale = locale.into();
         validate_locale_and_document(&locale, &document).map(|locale| {
@@ -62,7 +63,7 @@ impl PostContent {
         })
     }
 
-    /// Adds or replaces a localized document.
+    /// Adds or replaces a documented `zh_cn` or `en_us` localized document.
     pub fn insert_locale(
         &mut self,
         locale: impl Into<String>,
@@ -175,7 +176,7 @@ impl PostContentBuilder {
         Self::default()
     }
 
-    /// Selects the locale key used by the serialized post content.
+    /// Selects the documented `zh_cn` or `en_us` locale key.
     pub fn locale(mut self, locale: impl Into<String>) -> Self {
         self.locale = locale.into();
         self
@@ -264,6 +265,27 @@ impl PostElement {
         ]))
     }
 
+    /// Sets the official `un_escape` flag on a plain text element.
+    pub fn with_unescape(mut self, unescape: bool) -> Result<Self> {
+        let Some(element) = self.0.as_object_mut() else {
+            return Err(Error::Validation(
+                "post element must be a JSON object".to_owned(),
+            ));
+        };
+        let is_text = element
+            .get("tag")
+            .and_then(Value::as_str)
+            .is_some_and(|tag| tag == "text");
+        if !is_text {
+            return Err(Error::Validation(
+                "post un_escape is only supported for text elements".to_owned(),
+            ));
+        }
+
+        element.insert("un_escape".to_owned(), Value::Bool(unescape));
+        Ok(self)
+    }
+
     /// Applies supported text styles to text, link, or mention elements.
     pub fn with_styles(mut self, styles: impl IntoIterator<Item = PostStyle>) -> Result<Self> {
         let Some(element) = self.0.as_object_mut() else {
@@ -308,9 +330,23 @@ impl PostElement {
             .ok_or_else(|| Error::Validation("post element must be a JSON object".to_owned()))?;
         let tag = required_string(element, "tag", "post element")?;
 
+        if tag != "text" && element.contains_key("un_escape") {
+            return Err(Error::Validation(
+                "post un_escape is only supported for text elements".to_owned(),
+            ));
+        }
+
         match tag {
             "text" => {
                 required_string(element, "text", "post text element")?;
+                if element
+                    .get("un_escape")
+                    .is_some_and(|unescape| !unescape.is_boolean())
+                {
+                    return Err(Error::Validation(
+                        "post text element `un_escape` must be a boolean".to_owned(),
+                    ));
+                }
                 validate_styles(element.get("style"))?;
             }
             "a" => {
@@ -363,20 +399,9 @@ impl PostStyle {
 }
 
 fn validate_locale_and_document(locale: &str, document: &PostDocument) -> Result<String> {
-    let trimmed = locale.trim();
-    if trimmed.is_empty() {
+    if !matches!(locale, DEFAULT_POST_LOCALE | ENGLISH_POST_LOCALE) {
         return Err(Error::Validation(
-            "post locale must not be empty".to_owned(),
-        ));
-    }
-    if trimmed != locale
-        || !locale
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
-    {
-        return Err(Error::Validation(
-            "post locale must contain only ASCII letters, digits, underscores, or hyphens"
-                .to_owned(),
+            "post locale must be `zh_cn` or `en_us`".to_owned(),
         ));
     }
     if document.is_empty() {
@@ -537,10 +562,13 @@ mod tests {
             Err(Error::Validation(message))
                 if message == "post content must contain at least one paragraph"
         ));
-        assert!(matches!(
-            PostContent::builder().locale(" zh_cn ").text("hello").build(),
-            Err(Error::Validation(message)) if message.contains("ASCII letters")
-        ));
+        for locale in ["", "ja_jp", "ZH_CN", "fr-fr", " zh_cn "] {
+            assert!(matches!(
+                PostContent::builder().locale(locale).text("hello").build(),
+                Err(Error::Validation(message))
+                    if message == "post locale must be `zh_cn` or `en_us`"
+            ));
+        }
     }
 
     #[test]
@@ -560,6 +588,7 @@ mod tests {
         let invalid_values = [
             json!({}),
             json!({ "": { "content": [[{ "tag": "text", "text": "hello" }]] } }),
+            json!({ "ja_jp": { "content": [[{ "tag": "text", "text": "hello" }]] } }),
             json!({ "zh_cn": { "content": [] } }),
             json!({ "zh_cn": { "content": [[]] } }),
             json!({
@@ -576,6 +605,16 @@ mod tests {
                 }
             }),
             json!({ "zh_cn": { "content": [[{ "tag": "text" }]] } }),
+            json!({
+                "zh_cn": {
+                    "content": [[{ "tag": "text", "text": "hello", "un_escape": "yes" }]]
+                }
+            }),
+            json!({
+                "zh_cn": {
+                    "content": [[{ "tag": "a", "text": "docs", "href": "https://open.feishu.cn", "un_escape": true }]]
+                }
+            }),
             json!({
                 "zh_cn": {
                     "content": [[{ "tag": "a", "text": "docs", "href": "not a URL" }]]
@@ -605,7 +644,9 @@ mod tests {
             .markdown("**ready**")
             .paragraph([
                 PostElement::mention("ou_alice").expect("mention"),
-                PostElement::text(" read "),
+                PostElement::text(" read ")
+                    .with_unescape(true)
+                    .expect("unescape"),
                 PostElement::link("the docs", "https://open.feishu.cn")
                     .expect("link")
                     .with_styles([PostStyle::Italic])
@@ -631,6 +672,26 @@ mod tests {
     }
 
     #[test]
+    fn unescape_is_only_available_as_a_boolean_on_text_elements() {
+        assert_eq!(
+            PostElement::text("hello&nbsp;world")
+                .with_unescape(true)
+                .expect("text unescape")
+                .into_value(),
+            json!({
+                "tag": "text",
+                "text": "hello&nbsp;world",
+                "un_escape": true
+            })
+        );
+        assert!(matches!(
+            PostElement::markdown("hello").with_unescape(true),
+            Err(Error::Validation(message))
+                if message == "post un_escape is only supported for text elements"
+        ));
+    }
+
+    #[test]
     fn inserts_multiple_locales() {
         let mut post = PostContent::text("你好");
         post.insert_locale(
@@ -644,5 +705,15 @@ mod tests {
             post.document("en_us").expect("document").paragraphs().len(),
             1
         );
+
+        assert!(matches!(
+            post.insert_locale(
+                "ja_jp",
+                PostDocument::new().paragraph([PostElement::text("こんにちは")]),
+            ),
+            Err(Error::Validation(message))
+                if message == "post locale must be `zh_cn` or `en_us`"
+        ));
+        assert_eq!(post.locales().len(), 2);
     }
 }

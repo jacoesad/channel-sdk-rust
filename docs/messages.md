@@ -20,9 +20,11 @@ The SDK currently provides a high-level `MessageSender` for text and rich-text m
 
 `message` and `reply` accept caller-provided `MessageContent`. `text_message` and `text_reply` are convenience entry points for plain text content. `post_message` and `post_reply` accept typed `PostContent`; `markdown_message` and `markdown_reply` wrap Markdown in native rich-text content automatically.
 
-`PostContent::markdown` creates the official `post` shape with one `tag=md` element. Lark/Feishu renders the Markdown natively with its supported CommonMark 0.31, GFM, mention, and image extensions, so the SDK does not maintain a separate Markdown parser. `PostContent::text` creates a structured plain-text post, and `PostContentBuilder` can set a locale and title or append multiple Markdown and structured paragraphs.
+`PostContent::markdown` creates the official `post` shape with one `tag=md` element. Lark/Feishu renders the content according to the native Markdown syntax supported by the current platform and client, so the SDK does not maintain a separate Markdown parser. Consult the official message-content documentation for the current syntax and client-version limitations. `PostContent::text` creates a structured plain-text post, and `PostContentBuilder` can select the documented `zh_cn` or `en_us` locale, set a title, or append multiple Markdown and structured paragraphs.
 
-Structured paragraphs use `PostElement` helpers for text, validated links, @user/@all mentions, and supported `PostStyle` values. Native `md` elements must occupy their own paragraph. Use `MessageContent::Custom` as the lower-level escape hatch for official post elements that are not modeled yet.
+Structured paragraphs use `PostElement` helpers for text, the optional boolean `un_escape` text flag, validated links, @user/@all mentions, and supported `PostStyle` values. Native `md` elements must occupy their own paragraph. Use `MessageContent::Custom` as the lower-level escape hatch for official post elements or future locale values that are not modeled yet.
+
+`MessageContent` is non-exhaustive. Downstream matches must include a wildcard arm so future message content types can be added without another source-breaking enum change. The `Post` variant is part of the planned `v0.5.0` milestone release rather than a `v0.4.x` patch.
 
 `MessageSender` automatically generates one idempotency key per logical send or reply and reuses it across conservative transport-failure retries. Callers that already have a stable upstream request, task, or event identifier can provide it through the per-call options. Caller-provided `uuid` values must be non-empty and at most 50 characters. `MessageSender` does not retry API errors, validation failures, or OpenAPI HTTP status errors.
 

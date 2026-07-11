@@ -562,6 +562,57 @@ mod tests {
     }
 
     #[test]
+    fn markdown_reply_uses_post_content_and_managed_uuid() {
+        let transport = FakeTransport::new(vec![
+            FakeResponse::http(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "tenant-token-1",
+                    "expire": 7200
+                }),
+            ),
+            FakeResponse::http(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "data": {
+                        "message_id": "om_markdown_reply"
+                    }
+                }),
+            ),
+        ]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+        let sender = MessageSender::new(client);
+
+        let message_id = block_on(
+            sender
+                .markdown_reply(MessageId("om_parent".to_owned()), "**reply**")
+                .send(),
+        )
+        .expect("replied with markdown");
+
+        assert_eq!(message_id, MessageId("om_markdown_reply".to_owned()));
+        let calls = transport.calls();
+        assert_eq!(
+            calls[1].url.as_str(),
+            "https://open.feishu.cn/open-apis/im/v1/messages/om_parent/reply"
+        );
+        assert_eq!(calls[1].body["msg_type"], "post");
+        assert_eq!(
+            calls[1].body["content"],
+            "{\"zh_cn\":{\"content\":[[{\"tag\":\"md\",\"text\":\"**reply**\"}]]}}"
+        );
+        assert!(
+            calls[1].body["uuid"]
+                .as_str()
+                .is_some_and(|uuid| uuid.starts_with("lc-"))
+        );
+    }
+
+    #[test]
     fn text_message_rejects_empty_uuid() {
         let transport = FakeTransport::new(vec![]);
         let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());

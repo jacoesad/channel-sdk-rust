@@ -21,6 +21,7 @@ pub enum Recipient {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum MessageContent {
     Text { text: String },
     Post { post: PostContent },
