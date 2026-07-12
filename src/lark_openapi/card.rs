@@ -254,6 +254,37 @@ mod tests {
     }
 
     #[test]
+    fn create_card_entity_rejects_invalid_response_card_id() {
+        let transport = FakeTransport::new(vec![
+            HttpResponse::json(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "tenant-token-1",
+                    "expire": 7200
+                }),
+            ),
+            HttpResponse::json(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "data": { "card_id": "card/unsafe" }
+                }),
+            ),
+        ]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+        let card = Card::builder().text("hello").build().expect("card");
+
+        let error = block_on(client.create_card_entity(&card))
+            .expect_err("unsafe response card_id must fail");
+
+        assert!(matches!(error, Error::Validation(_)));
+        assert_eq!(transport.calls().len(), 2);
+    }
+
+    #[test]
     fn update_card_entity_puts_sequence_uuid_and_card_json() {
         let transport = FakeTransport::new(vec![
             HttpResponse::json(
@@ -370,28 +401,5 @@ mod tests {
             content,
             json!({ "type": "card", "data": { "card_id": "7355372766134157313" } })
         );
-    }
-
-    #[test]
-    fn create_message_rejects_invalid_raw_card_before_authentication() {
-        let transport = FakeTransport::new(vec![]);
-        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
-
-        let error = block_on(client.create_message(
-            Recipient::Chat("oc_123".to_owned()),
-            MessageContent::Card {
-                card: json!({
-                    "schema": "1.0",
-                    "body": { "elements": [{ "tag": "markdown", "content": "hello" }] }
-                }),
-            },
-        ))
-        .expect_err("non-2.0 card must fail");
-
-        assert!(matches!(
-            error,
-            Error::Validation(message) if message == "card schema must be \"2.0\""
-        ));
-        assert!(transport.calls().is_empty());
     }
 }

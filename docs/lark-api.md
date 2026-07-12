@@ -113,7 +113,7 @@ For received messages, resource descriptors are derived from the official receiv
 - `Recipient::User(open_id)` -> `receive_id_type=open_id`, `receive_id=<open_id>`
 - `MessageContent::Text` -> `msg_type=text`
 - `MessageContent::Post` -> `msg_type=post`
-- `MessageContent::Card` -> `msg_type=interactive`
+- `MessageContent::Card` -> raw `msg_type=interactive` content, including template cards
 - `MessageContent::CardReference` -> `msg_type=interactive` with a CardKit `card_id` reference
 - `MessageContent::Custom` -> caller-provided `msg_type`
 - `content` is serialized as the JSON string required by the official API
@@ -124,7 +124,7 @@ For received messages, resource descriptors are derived from the official receiv
 - `MessageId` -> path field `{message_id}`
 - `MessageContent::Text` -> `msg_type=text`
 - `MessageContent::Post` -> `msg_type=post`
-- `MessageContent::Card` -> `msg_type=interactive`
+- `MessageContent::Card` -> raw `msg_type=interactive` content, including template cards
 - `MessageContent::CardReference` -> `msg_type=interactive` with a CardKit `card_id` reference
 - `MessageContent::Custom` -> caller-provided `msg_type`
 - `content` is serialized as the JSON string required by the official API
@@ -136,7 +136,7 @@ For received messages, resource descriptors are derived from the official receiv
 
 Two update identities are intentionally distinct:
 
-- `OpenApiClient::update_message_card` targets the `message_id` returned after sending an inline card. The official endpoint requires `config.update_multi=true` on the card before and after the update.
+- `OpenApiClient::update_message_card` targets the `message_id` returned after sending an inline card. The official endpoint requires `config.update_multi=true` on the card before and after the update, and only supports messages sent within the previous 14 days.
 - `OpenApiClient::create_card_entity` returns a `CardId`. Send it with `MessageContent::CardReference` or the high-level `card_reference_message`/`card_reference_reply` helpers, then use `OpenApiClient::update_card_entity` for full replacements.
 
 CardKit entity updates require a strictly increasing positive `sequence` for every operation on the same card. `CardUpdateOptions` validates the documented `1..=2147483647` range and optional 64-character `uuid`, but sequence persistence and cross-task synchronization remain caller responsibilities. Card entities are valid for 14 days and can be sent once.

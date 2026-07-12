@@ -1,7 +1,6 @@
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::card::Card;
 use crate::message::{MessageContent, MessageId, Recipient};
 use crate::validation::validate_path_identifier;
 use crate::{Error, Result};
@@ -197,13 +196,10 @@ impl TryFrom<MessageContent> for OpenApiMessageContent {
                     content: serde_json::to_value(post)?,
                 })
             }
-            MessageContent::Card { card } => {
-                let card = Card::from_value(card)?;
-                Ok(Self {
-                    msg_type: "interactive".to_owned(),
-                    content: card.into_value(),
-                })
-            }
+            MessageContent::Card { card } => Ok(Self {
+                msg_type: "interactive".to_owned(),
+                content: card,
+            }),
             MessageContent::CardReference { card_id } => {
                 card_id.validate()?;
                 Ok(Self {

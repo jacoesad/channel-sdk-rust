@@ -22,7 +22,7 @@ The SDK currently provides a high-level `MessageSender` for text and rich-text m
 - `MessageBuilder`
 - `MessageReplyBuilder`
 
-`message` and `reply` accept caller-provided `MessageContent`. `text_message` and `text_reply` are convenience entry points for plain text content. `post_message` and `post_reply` accept typed `PostContent`; `markdown_message` and `markdown_reply` wrap Markdown in native rich-text content automatically. `card_message` and `card_reply` send inline CardKit 2.0 JSON, while the card-reference variants send a pre-created `CardId`.
+`message` and `reply` accept caller-provided `MessageContent`. `MessageContent::Card` remains the raw `interactive` escape hatch for official payloads such as template cards. `text_message` and `text_reply` are convenience entry points for plain text content. `post_message` and `post_reply` accept typed `PostContent`; `markdown_message` and `markdown_reply` wrap Markdown in native rich-text content automatically. `card_message` and `card_reply` accept a validated `Card` and send inline CardKit 2.0 JSON, while the card-reference variants send a pre-created `CardId`.
 
 `PostContent::markdown` creates the official `post` shape with one `tag=md` element. Lark/Feishu renders the content according to the native Markdown syntax supported by the current platform and client, so the SDK does not maintain a separate Markdown parser. Consult the official message-content documentation for the current syntax and client-version limitations. `PostContent::text` creates a structured plain-text post, and `PostContentBuilder` can select the documented `zh_cn` or `en_us` locale, set a title, or append multiple Markdown and structured paragraphs.
 
@@ -239,5 +239,7 @@ Lark/Feishu uses `uuid` for request de-duplication. In a short-window smoke test
 ## Permissions
 
 Sending and replying to messages require the application to have the relevant IM send permission enabled in the Lark/Feishu developer console. The bot must be able to access the conversation that contains the target message.
+
+Creating or updating CardKit entities also requires the `cardkit:card:write` permission ("Create and update cards"). Inline message-card replacement uses the message update permissions documented by the official API and only supports messages sent within the previous 14 days.
 
 Message-reading permissions are separate from send permissions. For example, reading group message history requires `im:message.group_msg`, and reading group members requires a chat member read permission such as `im:chat.members:read`. Those read-side APIs are not part of the current message scope.

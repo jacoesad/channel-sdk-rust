@@ -97,6 +97,8 @@ cargo run --example reply_text
 
 `cards.rs` builds a CardKit 2.0 card with common typed components and sends it through `MessageSender`.
 
+Enable the relevant IM send permission for ordinary card messages. Creating or updating a CardKit entity additionally requires the `cardkit:card:write` permission ("Create and update cards") in the Lark/Feishu developer console.
+
 ```bash
 export LARK_APP_ID=cli_xxx
 export LARK_APP_SECRET=xxx
@@ -104,7 +106,7 @@ export LARK_CHAT_ID=oc_xxx
 cargo run --example cards
 ```
 
-Set `LARK_UPDATE_CARD=true` to replace the sent inline card by `message_id`. The builder emits `config.update_multi=true`, which the official message-card update API requires on both the original and updated card.
+Set `LARK_UPDATE_CARD=true` to replace the sent inline card by `message_id`. The builder emits `config.update_multi=true`, which the official message-card update API requires on both the original and updated card. Inline replacement is only available within 14 days after the message is sent.
 
 Use a CardKit entity when later component-level or streaming updates need a stable `card_id`:
 

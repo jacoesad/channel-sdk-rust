@@ -222,6 +222,52 @@ fn create_message_posts_tenant_message() {
 }
 
 #[test]
+fn create_message_preserves_raw_template_card_content() {
+    let transport = FakeTransport::new(vec![
+        HttpResponse::json(
+            200,
+            json!({
+                "code": 0,
+                "msg": "ok",
+                "tenant_access_token": "tenant-token-1",
+                "expire": 7200
+            }),
+        ),
+        HttpResponse::json(
+            200,
+            json!({
+                "code": 0,
+                "msg": "ok",
+                "data": { "message_id": "om_template" }
+            }),
+        ),
+    ]);
+    let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+    let template = json!({
+        "type": "template",
+        "data": {
+            "template_id": "AAq_example",
+            "template_variable": { "name": "Rust" }
+        }
+    });
+
+    let message_id = block_on(client.create_message(
+        Recipient::Chat("oc_123".to_owned()),
+        MessageContent::Card {
+            card: template.clone(),
+        },
+    ))
+    .expect("sent template card");
+
+    assert_eq!(message_id, MessageId("om_template".to_owned()));
+    let body = &transport.calls()[1].body;
+    assert_eq!(body["msg_type"], "interactive");
+    let content: Value = serde_json::from_str(body["content"].as_str().expect("content string"))
+        .expect("template card json");
+    assert_eq!(content, template);
+}
+
+#[test]
 fn create_message_serializes_native_markdown_post_content() {
     let transport = FakeTransport::new(vec![
         HttpResponse::json(
@@ -412,6 +458,52 @@ fn reply_message_posts_tenant_reply() {
             "content": "{\"text\":\"reply from rust\"}"
         })
     );
+}
+
+#[test]
+fn reply_message_preserves_raw_template_card_content() {
+    let transport = FakeTransport::new(vec![
+        HttpResponse::json(
+            200,
+            json!({
+                "code": 0,
+                "msg": "ok",
+                "tenant_access_token": "tenant-token-1",
+                "expire": 7200
+            }),
+        ),
+        HttpResponse::json(
+            200,
+            json!({
+                "code": 0,
+                "msg": "ok",
+                "data": { "message_id": "om_template_reply" }
+            }),
+        ),
+    ]);
+    let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+    let template = json!({
+        "type": "template",
+        "data": {
+            "template_id": "AAq_example",
+            "template_version_name": "1.0.0"
+        }
+    });
+
+    let message_id = block_on(client.reply_message(
+        MessageId("om_parent".to_owned()),
+        MessageContent::Card {
+            card: template.clone(),
+        },
+    ))
+    .expect("replied with template card");
+
+    assert_eq!(message_id, MessageId("om_template_reply".to_owned()));
+    let body = &transport.calls()[1].body;
+    assert_eq!(body["msg_type"], "interactive");
+    let content: Value = serde_json::from_str(body["content"].as_str().expect("content string"))
+        .expect("template card json");
+    assert_eq!(content, template);
 }
 
 #[test]
