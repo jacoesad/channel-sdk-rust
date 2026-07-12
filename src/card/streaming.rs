@@ -227,6 +227,15 @@ impl CardSettings {
             && self.config.streaming_config.is_none()
             && self.config.summary.is_none()
     }
+
+    pub(crate) fn validate(&self) -> Result<()> {
+        if self.is_empty() {
+            return Err(Error::Validation(
+                "card settings must contain at least one update".to_owned(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -327,5 +336,14 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    fn rejects_empty_settings() {
+        let error = CardSettings::new()
+            .validate()
+            .expect_err("empty settings must fail");
+
+        assert!(matches!(error, Error::Validation(_)));
     }
 }

@@ -10,6 +10,7 @@ use serde_json::{Map, Value, json};
 use crate::Result;
 
 pub use builder::{CardBuilder, CardButtonStyle, CardElement};
+pub(crate) use streaming::validate_card_element_content;
 pub use streaming::{
     CardElementContent, CardSettings, CardStreamingConfig, CardStreamingPlatformValues,
     CardStreamingPrintStrategy, MAX_CARD_ELEMENT_CONTENT_CHARS,
