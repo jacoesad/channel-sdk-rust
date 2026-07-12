@@ -4,6 +4,7 @@ use serde_json::Value;
 use crate::Result;
 use crate::message::NormalizedMessage;
 
+mod card_action;
 #[cfg(feature = "websocket")]
 mod consumer;
 #[cfg(feature = "websocket")]
@@ -17,6 +18,7 @@ mod reassembly;
 #[cfg(feature = "websocket")]
 mod runtime;
 
+pub use card_action::{CardActionResponse, CardActionToast, CardActionToastType};
 #[cfg(feature = "websocket")]
 pub use consumer::{EventConnection, EventConnectionItem, EventConsumer, ReceivedEvent};
 #[cfg(feature = "websocket")]

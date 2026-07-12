@@ -16,6 +16,7 @@ The selected domain comes from `ChannelConfig`:
 | Create Message | `POST /open-apis/im/v1/messages` | `OpenApiClient::create_message` |
 | Reply Message | `POST /open-apis/im/v1/messages/{message_id}/reply` | `OpenApiClient::reply_message` |
 | Update Message Card | `PATCH /open-apis/im/v1/messages/{message_id}` | `OpenApiClient::update_message_card` |
+| Delayed Callback Card Update | `POST /open-apis/interactive/v1/card/update` | `OpenApiClient::update_message_card_with_callback_token` |
 | Create Card Entity | `POST /open-apis/cardkit/v1/cards` | `OpenApiClient::create_card_entity` |
 | Full Update Card Entity | `PUT /open-apis/cardkit/v1/cards/{card_id}` | `OpenApiClient::update_card_entity` |
 | WebSocket Endpoint | `POST /callback/ws/endpoint` | `OpenApiClient::websocket_endpoint` |
@@ -30,6 +31,7 @@ Official docs:
 - [Message Content](https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json.md)
 - [Reply Message](https://open.feishu.cn/document/server-docs/im-v1/message/reply.md)
 - [Update Message Card](https://open.feishu.cn/document/server-docs/im-v1/message-card/patch.md)
+- [Delayed Callback Card Update](https://open.feishu.cn/document/ukTMukTMukTM/uMDO1YjLzgTN24yM4UjN)
 - [Create Card Entity](https://open.feishu.cn/document/cardkit-v1/card/create.md)
 - [Full Update Card Entity](https://open.feishu.cn/document/cardkit-v1/card/update.md)
 - [Receive Message](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive.md)
@@ -77,6 +79,7 @@ them with `EventPacketReassemblyOptions` on `EventConsumer` or `EventLoop`.
 - success: `{"code":200}`
 - failure: `{"code":500}`
 - optional `data` is a caller-provided base64 string
+- `WebSocketEventAck::with_json_data` serializes and Base64-encodes a typed callback response
 - optional `biz_rt` is sent as the `biz_rt` frame header
 
 The higher-level `EventConsumer` wraps a single `WebSocketConnection` and combines receive, Lark event parsing, handler execution, and ACK sending. `handle_next_event` adds a `biz_rt` ACK header when the handler returns an ACK without one. If event parsing fails after a WebSocket event frame has been received, `EventConsumer` attempts to send an internal-server-error ACK before returning. Handler errors are also ACKed as internal-server-error before the original handler error is returned to the caller.
@@ -104,6 +107,8 @@ For received messages, resource descriptors are derived from the official receiv
 - `token`: the short-lived token used by future card update helpers
 - `action`: component tag, name, timezone, developer-provided `value`, form/input/select values, checked state, and the raw action object
 - `host`, `delivery_type`, and card display context such as `open_message_id` and `open_chat_id`
+
+`CardActionResponse` builds the official immediate callback response body. It can attach a localized `CardActionToast` and a validated CardKit 2.0 `Card`; `to_websocket_ack` serializes that body and Base64-encodes it into a successful long-connection ACK. Returning `CardActionResponse::new()` acknowledges the callback without a toast or card change. Callers that need a template or a newer official response shape can encode their serializable payload with `WebSocketEventAck::with_json_data` directly.
 
 ## Message Mapping
 
@@ -137,11 +142,12 @@ For received messages, resource descriptors are derived from the official receiv
 Two update identities are intentionally distinct:
 
 - `OpenApiClient::update_message_card` targets the `message_id` returned after sending an inline card. The official endpoint requires `config.update_multi=true` on the card before and after the update, and only supports messages sent within the previous 14 days.
+- `OpenApiClient::update_message_card_with_callback_token` performs a delayed full update with the token from `ChannelEvent::CardAction`. The callback ACK must complete before this request is sent; the token is valid for 30 minutes and can be used at most twice.
 - `OpenApiClient::create_card_entity` returns a `CardId`. Send it with `MessageContent::CardReference` or the high-level `card_reference_message`/`card_reference_reply` helpers, then use `OpenApiClient::update_card_entity` for full replacements.
 
 CardKit entity updates require a strictly increasing positive `sequence` for every operation on the same card. `CardUpdateOptions` validates the documented `1..=2147483647` range and optional 64-character `uuid`, but sequence persistence and cross-task synchronization remain caller responsibilities. Card entities are valid for 14 days and can be sent once.
 
-Element-level CardKit updates, streaming-mode configuration, and callback-token response updates remain later Milestone 5 work.
+Element-level CardKit updates and streaming-mode configuration remain later Milestone 5 work.
 
 ## Error Handling
 

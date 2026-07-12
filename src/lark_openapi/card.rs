@@ -9,6 +9,7 @@ use super::message::validate_message_id;
 use super::{OpenApiClient, OpenApiTransport};
 
 const CARD_ENTITY_PATH: &str = "/open-apis/cardkit/v1/cards";
+const CALLBACK_CARD_UPDATE_PATH: &str = "/open-apis/interactive/v1/card/update";
 const MESSAGE_PATH: &str = "/open-apis/im/v1/messages";
 const MAX_CARD_UPDATE_UUID_CHARS: usize = 64;
 const MAX_CARD_UPDATE_SEQUENCE: u32 = i32::MAX as u32;
@@ -29,6 +30,28 @@ where
             content: serde_json::to_string(card)?,
         };
         let _: Value = self.patch_tenant_json(&path, &request).await?;
+        Ok(())
+    }
+
+    /// Updates a message card using the token from a card action callback.
+    ///
+    /// The callback must be acknowledged successfully before this request is
+    /// sent. Lark/Feishu callback tokens remain valid for 30 minutes and can be
+    /// used at most twice.
+    pub async fn update_message_card_with_callback_token(
+        &self,
+        callback_token: &str,
+        card: &Card,
+    ) -> Result<()> {
+        validate_callback_token(callback_token)?;
+        card.validate()?;
+        let request = CallbackCardUpdateRequest {
+            token: callback_token,
+            card,
+        };
+        let _: Value = self
+            .post_tenant_json(CALLBACK_CARD_UPDATE_PATH, &request)
+            .await?;
         Ok(())
     }
 
@@ -67,6 +90,15 @@ where
         let _: Value = self.put_tenant_json(&path, &request).await?;
         Ok(())
     }
+}
+
+fn validate_callback_token(callback_token: &str) -> Result<()> {
+    if callback_token.trim().is_empty() {
+        return Err(Error::Validation(
+            "card callback token must not be empty".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 /// Required sequencing and optional idempotency values for CardKit updates.
@@ -118,6 +150,12 @@ impl CardUpdateOptions {
 #[derive(Debug, Serialize)]
 struct UpdateMessageCardRequest {
     content: String,
+}
+
+#[derive(Debug, Serialize)]
+struct CallbackCardUpdateRequest<'a> {
+    token: &'a str,
+    card: &'a Card,
 }
 
 #[derive(Debug, Serialize)]
@@ -207,6 +245,58 @@ mod tests {
             let error =
                 block_on(client.update_message_card(&MessageId(message_id.to_owned()), &card))
                     .expect_err("unsafe message_id must fail");
+            assert!(matches!(error, Error::Validation(_)));
+        }
+        assert!(transport.calls().is_empty());
+    }
+
+    #[test]
+    fn update_message_card_with_callback_token_posts_card_json() {
+        let transport = FakeTransport::new(vec![
+            HttpResponse::json(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "tenant-token-1",
+                    "expire": 7200
+                }),
+            ),
+            HttpResponse::json(200, json!({ "code": 0, "msg": "ok", "data": {} })),
+        ]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+        let card = Card::builder()
+            .markdown("Delayed update")
+            .build()
+            .expect("card");
+
+        block_on(client.update_message_card_with_callback_token("c-callback-1", &card))
+            .expect("updated callback card");
+
+        let calls = transport.calls();
+        assert_eq!(calls[1].method, HttpMethod::Post);
+        assert_eq!(
+            calls[1].url.as_str(),
+            "https://open.feishu.cn/open-apis/interactive/v1/card/update"
+        );
+        assert_eq!(calls[1].body["token"], "c-callback-1");
+        assert_eq!(calls[1].body["card"]["schema"], "2.0");
+        assert_eq!(
+            calls[1].body["card"]["body"]["elements"][0]["content"],
+            "Delayed update"
+        );
+    }
+
+    #[test]
+    fn update_message_card_with_callback_token_rejects_empty_token_before_authentication() {
+        let transport = FakeTransport::new(vec![]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+        let card = Card::builder().text("hello").build().expect("card");
+
+        for callback_token in ["", "   "] {
+            let error =
+                block_on(client.update_message_card_with_callback_token(callback_token, &card))
+                    .expect_err("empty callback token must fail");
             assert!(matches!(error, Error::Validation(_)));
         }
         assert!(transport.calls().is_empty());

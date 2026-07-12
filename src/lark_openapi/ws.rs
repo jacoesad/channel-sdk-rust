@@ -1,5 +1,9 @@
 use std::time::Duration;
 
+#[cfg(feature = "websocket")]
+use base64::Engine as _;
+#[cfg(feature = "websocket")]
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -511,6 +515,17 @@ impl WebSocketEventAck {
     pub fn with_base64_data(mut self, data: impl Into<String>) -> Self {
         self.data = Some(data.into());
         self
+    }
+
+    /// Serializes a callback response as JSON and stores its Base64 encoding
+    /// in the ACK data field used by the long-connection protocol.
+    #[cfg(feature = "websocket")]
+    pub fn with_json_data<T>(mut self, data: &T) -> Result<Self>
+    where
+        T: Serialize + ?Sized,
+    {
+        self.data = Some(BASE64_STANDARD.encode(serde_json::to_vec(data)?));
+        Ok(self)
     }
 
     pub fn with_biz_rt(mut self, biz_rt: u64) -> Self {
@@ -1118,6 +1133,16 @@ mod tests {
                 .expect("ack json"),
             json!({"code": 200, "data": "eyJvayI6dHJ1ZX0="})
         );
+    }
+
+    #[cfg(feature = "websocket")]
+    #[test]
+    fn websocket_event_ack_encodes_json_data_as_base64() {
+        let ack = WebSocketEventAck::ok()
+            .with_json_data(&json!({ "ok": true }))
+            .expect("json ack");
+
+        assert_eq!(ack.data(), Some("eyJvayI6dHJ1ZX0="));
     }
 
     #[test]

@@ -7,7 +7,8 @@ use lark_channel::lark_openapi::{
     OpenApiClient, ReqwestOpenApiTransport, TokioTungsteniteWebSocketTransport, WebSocketEventAck,
 };
 use lark_channel::{
-    ChannelConfig, ChannelEvent, EventLoop, EventLoopOptions, OpenApiWebSocketEventConnector,
+    CardActionResponse, CardActionToast, CardActionToastType, ChannelConfig, ChannelEvent,
+    EventLoop, EventLoopOptions, OpenApiWebSocketEventConnector,
 };
 
 #[tokio::main]
@@ -43,6 +44,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let exit = event_loop
         .run(|event| async move {
             print_received_event(&event);
+            if matches!(&event.event, ChannelEvent::CardAction(_)) {
+                return CardActionResponse::new()
+                    .with_toast(CardActionToast::new(
+                        CardActionToastType::Success,
+                        "Card action received",
+                    ))
+                    .to_websocket_ack();
+            }
             Ok(WebSocketEventAck::ok())
         })
         .await?;

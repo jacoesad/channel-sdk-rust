@@ -65,7 +65,9 @@ Use `NormalizedMessage::mentions_bot(bot_open_id)` to decide whether a group mes
 
 These descriptors are metadata only. Download/upload helpers remain later media work, and some resource types have official platform limits; for example, folders and stickers expose keys but are not downloadable through the same file APIs.
 
-Card action callback payloads with event type `card.action.trigger` are parsed as `ChannelEvent::CardAction`. The current model exposes the operator ids, callback update token, action value, form/input/select values, host metadata, open message id, open chat id, and raw payload. Responding through the callback token remains later card-helper work.
+Card action callback payloads with event type `card.action.trigger` are parsed as `ChannelEvent::CardAction`. The current model exposes the operator ids, callback update token, action value, form/input/select values, host metadata, open message id, open chat id, and raw payload. `CardActionResponse` builds an immediate empty, Toast, or CardKit 2.0 card response and converts it into the Base64 JSON data required by a WebSocket ACK.
+
+For delayed updates, first return a successful callback ACK, then pass the callback token to `OpenApiClient::update_message_card_with_callback_token` from work that runs after the ACK. The token is valid for 30 minutes and can be used at most twice. Calling the delayed update concurrently with or before the ACK can fail or be reverted by the platform, so the SDK intentionally does not hide this ordering behind an automatic request.
 
 With the `websocket` feature enabled, `EventConsumer` can receive a WebSocket event, parse it into `ChannelEvent`, call a user-provided handler, and ACK the underlying event frame. `handle_next_event` adds `biz_rt` when the handler ACK omits it. If event parsing fails after a complete event is received, `EventConsumer` attempts to send an internal-server-error ACK before returning. Handler errors are also ACKed as internal-server-error before the original handler error is returned to the caller, matching the official SDK long-connection behavior.
 
@@ -77,7 +79,7 @@ The loop sends the official application-level heartbeat ping at the endpoint-pro
 
 Lower-level raw message entry points are available under `lark_channel::lark_openapi` for callers that need to pass `MessageContent` directly. See [lark-api.md](lark-api.md) for the exact official API mappings.
 
-Card callback responses, media upload, streaming updates, and richer retry policies are planned follow-up work.
+Media upload, streaming updates, and richer retry policies are planned follow-up work.
 
 Runnable examples are documented in [../examples/README.md](../examples/README.md), including low-level create/reply calls and the high-level `MessageSender` flow.
 
@@ -169,6 +171,27 @@ let message_id = sender
 ```
 
 Use `OpenApiClient::update_message_card` for unconditional replacement of an inline sent card by `message_id`. For later component-level or streaming updates, create a CardKit entity with `OpenApiClient::create_card_entity`, send its `CardId` with `card_reference_message` or `card_reference_reply`, and use `OpenApiClient::update_card_entity` with a strictly increasing sequence. See [lark-api.md](lark-api.md) for exact endpoint mappings and lifecycle constraints.
+
+To acknowledge a card action with immediate feedback:
+
+```rust
+use lark_channel::{CardActionResponse, CardActionToast, CardActionToastType};
+
+let ack = CardActionResponse::new()
+    .with_toast(CardActionToast::new(
+        CardActionToastType::Success,
+        "Action accepted",
+    ))
+    .to_websocket_ack()?;
+```
+
+If the card must be updated later, return the ACK first and enqueue the callback token. Work that runs after the ACK can then call:
+
+```rust
+openapi
+    .update_message_card_with_callback_token(callback_token, &updated_card)
+    .await?;
+```
 
 To send a direct message by user id:
 
