@@ -394,6 +394,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn handle_next_event_preserves_handler_ack_data_when_adding_biz_rt() {
+        let mut consumer = EventConsumer::new(fake_connection_with_payload(message_payload()));
+
+        let handled = consumer
+            .handle_next_event(|_| async { Ok(WebSocketEventAck::ok().with_base64_data("e30=")) })
+            .await
+            .expect("handled");
+
+        assert!(handled);
+        assert_eq!(consumer.connection().acks.len(), 1);
+        assert_eq!(consumer.connection().acks[0].data(), Some("e30="));
+        assert!(consumer.connection().acks[0].biz_rt().is_some());
+    }
+
+    #[tokio::test]
     async fn handle_next_event_acks_handler_errors_as_internal_server_error() {
         let mut consumer = EventConsumer::new(fake_connection_with_payload(message_payload()));
 

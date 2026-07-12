@@ -19,8 +19,8 @@ pub use client::{ChannelClient, ChannelClientExt};
 pub use config::{ChannelConfig, Domain};
 pub use error::{Error, Result};
 pub use event::{
-    CardActionContext, CardActionEvent, CardActionOperator, CardActionPayload, ChannelEvent,
-    EventContext, parse_lark_event_payload,
+    CardActionContext, CardActionEvent, CardActionOperator, CardActionPayload, CardActionResponse,
+    CardActionToast, CardActionToastType, ChannelEvent, EventContext, parse_lark_event_payload,
 };
 #[cfg(feature = "websocket")]
 pub use event::{

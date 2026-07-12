@@ -55,9 +55,10 @@ required-features = ["reqwest-transport", "websocket"]
 [features]
 default = ["reqwest-transport"]
 reqwest-transport = ["dep:reqwest"]
-websocket = ["dep:futures-util", "dep:prost", "dep:tokio", "dep:tokio-tungstenite"]
+websocket = ["dep:base64", "dep:futures-util", "dep:prost", "dep:tokio", "dep:tokio-tungstenite"]
 
 [dependencies]
+base64 = { version = "0.22", optional = true }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"], optional = true }
 prost = { version = "0.13", optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }

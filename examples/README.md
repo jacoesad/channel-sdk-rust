@@ -148,7 +148,7 @@ The library also exposes low-level event helpers behind the `websocket` feature.
 
 For application code, prefer `EventConsumer` when you want a single-connection receive/parse/handler/ACK loop. `handle_next_event` adds a `biz_rt` ACK header when the handler returns an ACK without one. If parsing fails after a complete event is received, `EventConsumer` attempts to send an internal-server-error ACK before returning. Handler errors are also ACKed as internal-server-error before the original handler error is returned. High-level event handling reassembles Lark/Feishu application-level split packets whose `sum > 1` before invoking the handler; `WebSocketConnection::next_event` remains the lower-level raw-frame API.
 
-`ws_event_loop.rs` runs the higher-level reconnecting `EventLoop`. It requests a fresh WebSocket endpoint for each connection attempt, reconnects after clean closes and transport errors, sends application-level heartbeat pings at the endpoint-provided `PingInterval` with a 120-second fallback while waiting for events, prints parsed event metadata, and ACKs handled events.
+`ws_event_loop.rs` runs the higher-level reconnecting `EventLoop`. It requests a fresh WebSocket endpoint for each connection attempt, reconnects after clean closes and transport errors, sends application-level heartbeat pings at the endpoint-provided `PingInterval` with a 120-second fallback while waiting for events, prints parsed event metadata, and ACKs handled events. Card actions receive a success Toast through `CardActionResponse`.
 
 ```bash
 export LARK_APP_ID=cli_xxx
@@ -162,6 +162,8 @@ cargo run --example ws_event_loop --features websocket
 The example uses local reconnect defaults (`LARK_WS_MAX_RECONNECTS=3`, `LARK_WS_RECONNECT_DELAY_MS=1000`) so local smoke tests terminate predictably. Set `LARK_WS_USE_SERVER_RECONNECT_CONFIG=true` to follow endpoint-provided reconnect policy instead. Set `LARK_WS_HEARTBEAT_TIMEOUT_MS` to enable an optional liveness watchdog after application-level heartbeat pings sent while waiting for events.
 
 The loop responds to WebSocket ping frames through the underlying connection and sends the official application-level heartbeat ping while waiting for events. Handler futures are awaited without driving connection heartbeats; keep handlers short or spawn long-running work outside the loop. Heartbeat send failures and optional heartbeat liveness timeouts are treated as reconnectable transport errors. `EventLoop` reassembles split packets before invoking handlers and keeps receive, dispatch, and protocol writes as separate internal runtime responsibilities; independently driven heartbeat and writer tasks remain follow-up work.
+
+For delayed card updates, return the callback ACK first and hand the callback token to work that runs afterward. Call `OpenApiClient::update_message_card_with_callback_token` from that post-ACK work. Tokens are valid for 30 minutes and can be used at most twice; calling the update before or concurrently with the ACK is not supported by the platform lifecycle.
 
 ## Minimal echo bot
 
