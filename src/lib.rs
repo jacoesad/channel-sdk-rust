@@ -14,7 +14,11 @@ pub mod media;
 pub mod message;
 mod validation;
 
-pub use card::{Card, CardBuilder, CardButtonStyle, CardElement, CardId};
+pub use card::{
+    Card, CardBuilder, CardButtonStyle, CardElement, CardElementContent, CardId, CardSettings,
+    CardStreamingConfig, CardStreamingPlatformValues, CardStreamingPrintStrategy,
+    MAX_CARD_ELEMENT_CONTENT_CHARS, MAX_CARD_JSON_BYTES,
+};
 pub use client::{ChannelClient, ChannelClientExt};
 pub use config::{ChannelConfig, Domain};
 pub use error::{Error, Result};
