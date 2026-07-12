@@ -1,6 +1,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
+use crate::card::CardId;
 use crate::media::ResourceDescriptor;
 
 mod post;
@@ -21,6 +22,10 @@ pub enum Recipient {
 
 /// Outbound message content supported by the Channel SDK.
 ///
+/// `Card` preserves raw official `interactive` content, including template
+/// cards. Use [`MessageSender::card_message`] or [`MessageSender::card_reply`]
+/// when a validated CardKit 2.0 [`crate::Card`] is preferred.
+///
 /// This enum is non-exhaustive because future releases may add content types.
 /// Its serde representation may add matching variants as well, so older readers
 /// are not guaranteed to deserialize data written by newer releases.
@@ -31,6 +36,7 @@ pub enum MessageContent {
     Text { text: String },
     Post { post: PostContent },
     Card { card: Value },
+    CardReference { card_id: CardId },
     Custom { msg_type: String, content: Value },
 }
 

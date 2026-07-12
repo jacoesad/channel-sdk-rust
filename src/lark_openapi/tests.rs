@@ -1,14 +1,9 @@
-use std::collections::{BTreeMap, VecDeque};
-use std::future::Future;
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
-
 use serde_json::{Value, json};
-use url::Url;
 
+use super::test_support::{FakeTransport, block_on};
 use super::*;
 use crate::message::{MessageContent, MessageId, PostContent, Recipient};
-use crate::{ChannelConfig, Error, Result};
+use crate::{ChannelConfig, Error};
 
 #[test]
 fn app_access_token_requests_and_caches_token() {
@@ -227,6 +222,52 @@ fn create_message_posts_tenant_message() {
 }
 
 #[test]
+fn create_message_preserves_raw_template_card_content() {
+    let transport = FakeTransport::new(vec![
+        HttpResponse::json(
+            200,
+            json!({
+                "code": 0,
+                "msg": "ok",
+                "tenant_access_token": "tenant-token-1",
+                "expire": 7200
+            }),
+        ),
+        HttpResponse::json(
+            200,
+            json!({
+                "code": 0,
+                "msg": "ok",
+                "data": { "message_id": "om_template" }
+            }),
+        ),
+    ]);
+    let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+    let template = json!({
+        "type": "template",
+        "data": {
+            "template_id": "AAq_example",
+            "template_variable": { "name": "Rust" }
+        }
+    });
+
+    let message_id = block_on(client.create_message(
+        Recipient::Chat("oc_123".to_owned()),
+        MessageContent::Card {
+            card: template.clone(),
+        },
+    ))
+    .expect("sent template card");
+
+    assert_eq!(message_id, MessageId("om_template".to_owned()));
+    let body = &transport.calls()[1].body;
+    assert_eq!(body["msg_type"], "interactive");
+    let content: Value = serde_json::from_str(body["content"].as_str().expect("content string"))
+        .expect("template card json");
+    assert_eq!(content, template);
+}
+
+#[test]
 fn create_message_serializes_native_markdown_post_content() {
     let transport = FakeTransport::new(vec![
         HttpResponse::json(
@@ -420,6 +461,52 @@ fn reply_message_posts_tenant_reply() {
 }
 
 #[test]
+fn reply_message_preserves_raw_template_card_content() {
+    let transport = FakeTransport::new(vec![
+        HttpResponse::json(
+            200,
+            json!({
+                "code": 0,
+                "msg": "ok",
+                "tenant_access_token": "tenant-token-1",
+                "expire": 7200
+            }),
+        ),
+        HttpResponse::json(
+            200,
+            json!({
+                "code": 0,
+                "msg": "ok",
+                "data": { "message_id": "om_template_reply" }
+            }),
+        ),
+    ]);
+    let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+    let template = json!({
+        "type": "template",
+        "data": {
+            "template_id": "AAq_example",
+            "template_version_name": "1.0.0"
+        }
+    });
+
+    let message_id = block_on(client.reply_message(
+        MessageId("om_parent".to_owned()),
+        MessageContent::Card {
+            card: template.clone(),
+        },
+    ))
+    .expect("replied with template card");
+
+    assert_eq!(message_id, MessageId("om_template_reply".to_owned()));
+    let body = &transport.calls()[1].body;
+    assert_eq!(body["msg_type"], "interactive");
+    let content: Value = serde_json::from_str(body["content"].as_str().expect("content string"))
+        .expect("template card json");
+    assert_eq!(content, template);
+}
+
+#[test]
 fn reply_message_with_options_includes_uuid_and_thread_flag() {
     let transport = FakeTransport::new(vec![
         HttpResponse::json(
@@ -463,6 +550,24 @@ fn reply_message_with_options_includes_uuid_and_thread_flag() {
             "reply_in_thread": true
         })
     );
+}
+
+#[test]
+fn reply_message_rejects_url_path_delimiters_before_authentication() {
+    let transport = FakeTransport::new(vec![]);
+    let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+
+    for message_id in ["om_1/extra", "om_1?x=1", "om_1#fragment", "om_1%2Fextra"] {
+        let error = block_on(client.reply_message(
+            MessageId(message_id.to_owned()),
+            MessageContent::Text {
+                text: "hello".to_owned(),
+            },
+        ))
+        .expect_err("unsafe parent message_id must fail");
+        assert!(matches!(error, Error::Validation(_)));
+    }
+    assert!(transport.calls().is_empty());
 }
 
 #[test]
@@ -524,90 +629,4 @@ fn post_openapi_json_returns_http_status_error_for_non_success_status() {
         .expect_err("http status error");
 
     assert!(matches!(error, Error::HttpStatus { status: 500 }));
-}
-
-#[derive(Clone, Debug)]
-struct FakeTransport {
-    state: Arc<Mutex<FakeState>>,
-}
-
-impl FakeTransport {
-    fn new(responses: Vec<HttpResponse>) -> Self {
-        Self {
-            state: Arc::new(Mutex::new(FakeState {
-                responses: responses.into(),
-                calls: Vec::new(),
-            })),
-        }
-    }
-
-    fn calls(&self) -> Vec<FakeCall> {
-        self.state().calls.clone()
-    }
-
-    fn state(&self) -> MutexGuard<'_, FakeState> {
-        self.state.lock().expect("fake transport state poisoned")
-    }
-}
-
-impl OpenApiTransport for FakeTransport {
-    fn send_json(&self, request: HttpRequest) -> BoxFuture<'static, Result<HttpResponse>> {
-        let response = {
-            let mut state = self.state();
-            state.calls.push(FakeCall {
-                url: request.url,
-                headers: request.headers,
-                body: request.body,
-            });
-            state.responses.pop_front().expect("fake response")
-        };
-
-        Box::pin(async move { Ok(response) })
-    }
-}
-
-#[derive(Debug)]
-struct FakeState {
-    responses: VecDeque<HttpResponse>,
-    calls: Vec<FakeCall>,
-}
-
-#[derive(Clone, Debug)]
-struct FakeCall {
-    url: Url,
-    headers: BTreeMap<String, String>,
-    body: Value,
-}
-
-fn block_on<F>(future: F) -> F::Output
-where
-    F: Future,
-{
-    let waker = noop_waker();
-    let mut context = Context::from_waker(&waker);
-    let mut future = Box::pin(future);
-
-    match future.as_mut().poll(&mut context) {
-        Poll::Ready(output) => output,
-        Poll::Pending => panic!("test future unexpectedly pending"),
-    }
-}
-
-fn noop_waker() -> Waker {
-    unsafe { Waker::from_raw(noop_raw_waker()) }
-}
-
-fn noop_raw_waker() -> RawWaker {
-    fn clone(_: *const ()) -> RawWaker {
-        noop_raw_waker()
-    }
-
-    fn wake(_: *const ()) {}
-    fn wake_by_ref(_: *const ()) {}
-    fn drop(_: *const ()) {}
-
-    RawWaker::new(
-        std::ptr::null(),
-        &RawWakerVTable::new(clone, wake, wake_by_ref, drop),
-    )
 }

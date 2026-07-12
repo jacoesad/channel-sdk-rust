@@ -2,6 +2,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::message::{MessageContent, MessageId, Recipient};
+use crate::validation::validate_path_identifier;
 use crate::{Error, Result};
 
 use super::{OpenApiClient, OpenApiTransport};
@@ -59,6 +60,7 @@ where
         content: MessageContent,
         options: MessageReplyOptions,
     ) -> Result<MessageId> {
+        validate_message_id(&parent_message_id)?;
         let content = OpenApiMessageContent::try_from(content)?;
         let path = format!("{MESSAGE_PATH}/{}/reply", parent_message_id.0);
         let request = ReplyMessageRequest {
@@ -71,6 +73,10 @@ where
 
         Ok(MessageId(response.data.message_id))
     }
+}
+
+pub(super) fn validate_message_id(message_id: &MessageId) -> Result<()> {
+    validate_path_identifier(&message_id.0, "message_id")
 }
 
 /// Optional parameters for creating a new message.
@@ -194,6 +200,16 @@ impl TryFrom<MessageContent> for OpenApiMessageContent {
                 msg_type: "interactive".to_owned(),
                 content: card,
             }),
+            MessageContent::CardReference { card_id } => {
+                card_id.validate()?;
+                Ok(Self {
+                    msg_type: "interactive".to_owned(),
+                    content: serde_json::json!({
+                        "type": "card",
+                        "data": { "card_id": card_id.as_str() }
+                    }),
+                })
+            }
             MessageContent::Custom { msg_type, content } => Ok(Self { msg_type, content }),
         }
     }

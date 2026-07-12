@@ -13,14 +13,14 @@ The first target is to support agent/bot bridges such as `lark-coding-agent-brid
 
 ## Status
 
-Experimental. The crate currently contains the public module skeleton, shared data types, an OpenAPI foundation for app and tenant access-token management, outbound text and native Markdown/post messaging, replies, idempotency options, an early WebSocket endpoint/connection foundation, inbound message and card action parsing, normalized inbound text/post/mention handling, lightweight inbound resource descriptors, split-packet event reassembly, a single-connection event consumer, a reconnecting event loop with timer-driven heartbeat support, and a minimal echo bot example.
+Experimental. The crate currently contains the public module skeleton, shared data types, an OpenAPI foundation for app and tenant access-token management, outbound text and native Markdown/post messaging, CardKit 2.0 creation and update helpers, replies, idempotency options, an early WebSocket endpoint/connection foundation, inbound message and card action parsing, normalized inbound text/post/mention handling, lightweight inbound resource descriptors, split-packet event reassembly, a single-connection event consumer, a reconnecting event loop with timer-driven heartbeat support, and a minimal echo bot example.
 
 ## Planned Modules
 
 - `config`: app id/secret, Feishu/Lark domain selection, SDK source metadata
 - `event`: normalized inbound events
 - `message`: normalized messages, outbound content, and high-level message sending
-- `card`: interactive card primitives
+- `card`: validated CardKit 2.0 primitives and common component builders
 - `media`: resource descriptors and download/upload helpers
 - `client`: async client trait for transport implementations
 - `lark_openapi`: low-level Feishu/Lark OpenAPI auth, transport, response parsing, IM message primitives, and WebSocket endpoint discovery

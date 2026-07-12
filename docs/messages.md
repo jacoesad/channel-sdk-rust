@@ -10,21 +10,27 @@ The SDK currently provides a high-level `MessageSender` for text and rich-text m
 - `MessageSender::text_message`
 - `MessageSender::post_message`
 - `MessageSender::markdown_message`
+- `MessageSender::card_message`
+- `MessageSender::card_reference_message`
 - `MessageSender::reply`
 - `MessageSender::text_reply`
 - `MessageSender::post_reply`
 - `MessageSender::markdown_reply`
+- `MessageSender::card_reply`
+- `MessageSender::card_reference_reply`
 - `MessageSenderOptions`
 - `MessageBuilder`
 - `MessageReplyBuilder`
 
-`message` and `reply` accept caller-provided `MessageContent`. `text_message` and `text_reply` are convenience entry points for plain text content. `post_message` and `post_reply` accept typed `PostContent`; `markdown_message` and `markdown_reply` wrap Markdown in native rich-text content automatically.
+`message` and `reply` accept caller-provided `MessageContent`. `MessageContent::Card` remains the raw `interactive` escape hatch for official payloads such as template cards. `text_message` and `text_reply` are convenience entry points for plain text content. `post_message` and `post_reply` accept typed `PostContent`; `markdown_message` and `markdown_reply` wrap Markdown in native rich-text content automatically. `card_message` and `card_reply` accept a validated `Card` and send inline CardKit 2.0 JSON, while the card-reference variants send a pre-created `CardId`.
 
 `PostContent::markdown` creates the official `post` shape with one `tag=md` element. Lark/Feishu renders the content according to the native Markdown syntax supported by the current platform and client, so the SDK does not maintain a separate Markdown parser. Consult the official message-content documentation for the current syntax and client-version limitations. `PostContent::text` creates a structured plain-text post, and `PostContentBuilder` can select the documented `zh_cn` or `en_us` locale, set a title, or append multiple Markdown and structured paragraphs.
 
 Structured paragraphs use `PostElement` helpers for text, the optional boolean `un_escape` text flag, validated links, @user/@all mentions, and supported `PostStyle` values. Native `md` elements must occupy their own paragraph. Use `MessageContent::Custom` as the lower-level escape hatch for official post elements or future locale values that are not modeled yet.
 
 `MessageContent` is non-exhaustive. Downstream matches must include a wildcard arm so future message content types can be added without another source-breaking enum change. Its serde representation is not forward-compatible with unknown future variants: when persisted data or mixed-version deployments are involved, upgrade readers before writers. The `Post` variant is part of the planned `v0.5.0` milestone release rather than a `v0.4.x` patch.
+
+The `v0.5.0` card API intentionally replaces the initial scaffold's public-field `Card` struct with an opaque, validated CardKit 2.0 value. Replace `Card { schema, body }` construction with `Card::builder()`, `Card::from_value(full_card_json)`, or `Card::raw(body_json)`, and propagate the returned `Result`. This is a source-breaking pre-1.0 migration; serialized CardKit JSON remains the official schema 2.0 shape.
 
 `MessageSender` automatically generates one idempotency key per logical send or reply and reuses it across conservative transport-failure retries. Callers that already have a stable upstream request, task, or event identifier can provide it through the per-call options. Caller-provided `uuid` values must be non-empty and at most 50 characters. `MessageSender` does not retry API errors, validation failures, or OpenAPI HTTP status errors.
 
@@ -59,7 +65,7 @@ Use `NormalizedMessage::mentions_bot(bot_open_id)` to decide whether a group mes
 
 These descriptors are metadata only. Download/upload helpers remain later media work, and some resource types have official platform limits; for example, folders and stickers expose keys but are not downloadable through the same file APIs.
 
-Card action callback payloads with event type `card.action.trigger` are parsed as `ChannelEvent::CardAction`. The current model exposes the operator ids, callback update token, action value, form/input/select values, host metadata, open message id, open chat id, and raw payload. Responding to a card callback or updating the card content remains later card-helper work.
+Card action callback payloads with event type `card.action.trigger` are parsed as `ChannelEvent::CardAction`. The current model exposes the operator ids, callback update token, action value, form/input/select values, host metadata, open message id, open chat id, and raw payload. Responding through the callback token remains later card-helper work.
 
 With the `websocket` feature enabled, `EventConsumer` can receive a WebSocket event, parse it into `ChannelEvent`, call a user-provided handler, and ACK the underlying event frame. `handle_next_event` adds `biz_rt` when the handler ACK omits it. If event parsing fails after a complete event is received, `EventConsumer` attempts to send an internal-server-error ACK before returning. Handler errors are also ACKed as internal-server-error before the original handler error is returned to the caller, matching the official SDK long-connection behavior.
 
@@ -71,7 +77,7 @@ The loop sends the official application-level heartbeat ping at the endpoint-pro
 
 Lower-level raw message entry points are available under `lark_channel::lark_openapi` for callers that need to pass `MessageContent` directly. See [lark-api.md](lark-api.md) for the exact official API mappings.
 
-Card helpers, media upload, streaming updates, and richer retry policies are planned follow-up work.
+Card callback responses, media upload, streaming updates, and richer retry policies are planned follow-up work.
 
 Runnable examples are documented in [../examples/README.md](../examples/README.md), including low-level create/reply calls and the high-level `MessageSender` flow.
 
@@ -134,6 +140,35 @@ let message_id = sender
     .send()
     .await?;
 ```
+
+To build and send a CardKit 2.0 card:
+
+```rust
+use lark_channel::{Card, CardButtonStyle, CardElement};
+use serde_json::json;
+
+let approve = CardElement::callback_button(
+    "Approve",
+    json!({ "choice": "approve" }),
+)?
+.button_style(CardButtonStyle::Primary)?
+.element_id("approve_button")?;
+
+let card = Card::builder()
+    .header("Deployment")
+    .header_template("blue")
+    .markdown("Production is **ready**.")
+    .divider()
+    .element(approve)
+    .build()?;
+
+let message_id = sender
+    .card_message(Recipient::Chat("oc_xxx".to_owned()), card)
+    .send()
+    .await?;
+```
+
+Use `OpenApiClient::update_message_card` for unconditional replacement of an inline sent card by `message_id`. For later component-level or streaming updates, create a CardKit entity with `OpenApiClient::create_card_entity`, send its `CardId` with `card_reference_message` or `card_reference_reply`, and use `OpenApiClient::update_card_entity` with a strictly increasing sequence. See [lark-api.md](lark-api.md) for exact endpoint mappings and lifecycle constraints.
 
 To send a direct message by user id:
 
@@ -204,5 +239,7 @@ Lark/Feishu uses `uuid` for request de-duplication. In a short-window smoke test
 ## Permissions
 
 Sending and replying to messages require the application to have the relevant IM send permission enabled in the Lark/Feishu developer console. The bot must be able to access the conversation that contains the target message.
+
+Creating or updating CardKit entities also requires the `cardkit:card:write` permission ("Create and update cards"). Inline message-card replacement uses the message update permissions documented by the official API and only supports messages sent within the previous 14 days.
 
 Message-reading permissions are separate from send permissions. For example, reading group message history requires `im:message.group_msg`, and reading group members requires a chat member read permission such as `im:chat.members:read`. Those read-side APIs are not part of the current message scope.
