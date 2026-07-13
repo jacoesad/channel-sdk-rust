@@ -121,6 +121,24 @@ cargo run --example cards
 
 CardKit entities can be sent once and remain valid for 14 days. Every operation on one entity must use a `sequence` greater than its previous CardKit operation; the SDK validates the documented integer range but the caller owns ordering across concurrent tasks or process restarts.
 
+## Stream CardKit text
+
+`card_streaming.rs` exercises the low-level CardKit streaming protocol. It creates and sends a streaming card entity, updates one Markdown or nested plain-text element with full accumulated content, then disables streaming mode and replaces the chat preview summary.
+
+```bash
+export LARK_APP_ID=cli_xxx
+export LARK_APP_SECRET=xxx
+export LARK_CHAT_ID=oc_xxx
+# Optional final content and element kind (`markdown` is the default):
+export LARK_STREAM_TEXT="Streaming update completed."
+export LARK_STREAM_ELEMENT=plain_text
+cargo run --example card_streaming
+```
+
+`LARK_STREAM_ELEMENT` accepts `markdown` or `plain_text`. Markdown stores `element_id` on the top-level component, while the plain-text CardKit component is a `div` whose actual streaming target is the nested `plain_text`; the example assigns the identifier at the correct level for each form.
+
+`LARK_STREAM_TEXT` must contain between 2 and 100,000 Unicode characters, and the resulting serialized card JSON must remain within the platform's separate 30 KiB (30,720 UTF-8 bytes) whole-card limit. The example validates the complete streaming and closed card states before any OpenAPI call, initializes the selected text element with its first character, then sends the complete text so the update is a prefix-preserving append and the client can render the native typewriter effect. It uses sequence `1` for the content update and `2` for the settings update. Production callers must coordinate a strictly increasing sequence across every operation on the same card. This example is a protocol smoke test; buffering, throttling, and continuation across oversized cards belong to the later high-level streaming reply helper.
+
 ## WebSocket endpoint and connection
 
 `ws_connect.rs` requests the long-connection WebSocket endpoint. By default it prints redacted endpoint metadata only. Set `LARK_WS_CONNECT=1` to open the WebSocket connection and close it immediately. Add `LARK_WS_RECEIVE_ONCE=1` to wait for one event through `EventConsumer`, print parsed event metadata including resource descriptors, send an ACK, and close.

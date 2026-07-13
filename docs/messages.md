@@ -79,7 +79,7 @@ The loop sends the official application-level heartbeat ping at the endpoint-pro
 
 Lower-level raw message entry points are available under `lark_channel::lark_openapi` for callers that need to pass `MessageContent` directly. See [lark-api.md](lark-api.md) for the exact official API mappings.
 
-Media upload, streaming updates, and richer retry policies are planned follow-up work.
+Media upload, high-level streaming reply orchestration, and richer retry policies are planned follow-up work. The low-level CardKit streaming calls are documented in [lark-api.md](lark-api.md).
 
 Runnable examples are documented in [../examples/README.md](../examples/README.md), including low-level create/reply calls and the high-level `MessageSender` flow.
 
@@ -170,7 +170,7 @@ let message_id = sender
     .await?;
 ```
 
-Use `OpenApiClient::update_message_card` for unconditional replacement of an inline sent card by `message_id`. For later component-level or streaming updates, create a CardKit entity with `OpenApiClient::create_card_entity`, send its `CardId` with `card_reference_message` or `card_reference_reply`, and use `OpenApiClient::update_card_entity` with a strictly increasing sequence. See [lark-api.md](lark-api.md) for exact endpoint mappings and lifecycle constraints.
+Use `OpenApiClient::update_message_card` for unconditional replacement of an inline sent card by `message_id`. For CardKit entity workflows, create the entity with `OpenApiClient::create_card_entity` and send its `CardId` with `card_reference_message` or `card_reference_reply`. Use `OpenApiClient::update_card_entity` only for full-card replacement; native streaming uses `OpenApiClient::update_card_element_content` for accumulated text and `OpenApiClient::update_card_settings` to close streaming mode. Every CardKit entity operation requires a strictly increasing sequence. See [lark-api.md](lark-api.md) for exact endpoint mappings and lifecycle constraints.
 
 To acknowledge a card action with immediate feedback:
 
