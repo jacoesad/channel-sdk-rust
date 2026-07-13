@@ -4,8 +4,7 @@ use url::Url;
 
 use crate::{Error, Result};
 
-use super::Card;
-use super::validation::validate_element_id;
+use super::{Card, CardStreamingConfig, validate_element_id};
 
 /// Supported visual styles for a CardKit button.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -98,6 +97,33 @@ impl CardElement {
         validate_element_id(&element_id)?;
         self.object_mut()?
             .insert("element_id".to_owned(), Value::String(element_id));
+        Ok(self)
+    }
+
+    /// Assigns an identifier to this component's nested `plain_text` element.
+    ///
+    /// Use this identifier when targeting a value created by [`CardElement::text`]
+    /// with the CardKit streaming content API. [`CardElement::element_id`] keeps
+    /// assigning the outer component identifier.
+    pub fn plain_text_element_id(mut self, element_id: impl Into<String>) -> Result<Self> {
+        let element_id = element_id.into();
+        validate_element_id(&element_id)?;
+        let object = self.object_mut()?;
+        if object.get("tag").and_then(Value::as_str) != Some("div") {
+            return Err(Error::Validation(
+                "plain-text element_id is only supported for CardElement::text".to_owned(),
+            ));
+        }
+        let text = object
+            .get_mut("text")
+            .and_then(Value::as_object_mut)
+            .filter(|text| text.get("tag").and_then(Value::as_str) == Some("plain_text"))
+            .ok_or_else(|| {
+                Error::Validation(
+                    "plain-text element_id requires a nested plain_text element".to_owned(),
+                )
+            })?;
+        text.insert("element_id".to_owned(), Value::String(element_id));
         Ok(self)
     }
 
@@ -199,6 +225,29 @@ impl CardBuilder {
     /// Sets a raw CardKit config field.
     pub fn config(mut self, key: impl Into<String>, value: Value) -> Self {
         self.config.insert(key.into(), value);
+        self
+    }
+
+    /// Enables or disables CardKit streaming mode.
+    pub fn streaming_mode(mut self, enabled: bool) -> Self {
+        self.config
+            .insert("streaming_mode".to_owned(), Value::Bool(enabled));
+        self
+    }
+
+    /// Enables streaming mode with a typed CardKit rendering configuration.
+    pub fn streaming(mut self, config: CardStreamingConfig) -> Self {
+        self.config
+            .insert("streaming_mode".to_owned(), Value::Bool(true));
+        self.config
+            .insert("streaming_config".to_owned(), Value::from(config));
+        self
+    }
+
+    /// Sets the card summary shown in chat previews.
+    pub fn summary(mut self, content: impl Into<String>) -> Self {
+        self.config
+            .insert("summary".to_owned(), json!({ "content": content.into() }));
         self
     }
 
@@ -317,6 +366,59 @@ mod tests {
             .expect_err("invalid id must fail");
 
         assert!(matches!(error, Error::Validation(_)));
+    }
+
+    #[test]
+    fn builds_streaming_card_with_summary_and_element_id() {
+        let markdown = CardElement::markdown("Thinking...")
+            .element_id("stream_md")
+            .expect("element id");
+        let card = Card::builder()
+            .streaming(CardStreamingConfig::new())
+            .summary("[Generating...]")
+            .element(markdown)
+            .build()
+            .expect("streaming card");
+
+        assert_eq!(card.as_value()["config"]["streaming_mode"], true);
+        assert_eq!(
+            card.as_value()["config"]["streaming_config"]["print_frequency_ms"]["default"],
+            70
+        );
+        assert_eq!(
+            card.as_value()["config"]["summary"]["content"],
+            "[Generating...]"
+        );
+        assert_eq!(
+            card.as_value()["body"]["elements"][0]["element_id"],
+            "stream_md"
+        );
+    }
+
+    #[test]
+    fn assigns_plain_text_streaming_id_without_replacing_outer_component_id() {
+        let text = CardElement::text("Thinking...")
+            .element_id("stream_container")
+            .expect("outer component id")
+            .plain_text_element_id("stream_text")
+            .expect("nested plain-text id");
+
+        assert_eq!(text.as_value()["element_id"], "stream_container");
+        assert_eq!(text.as_value()["text"]["element_id"], "stream_text");
+    }
+
+    #[test]
+    fn rejects_plain_text_id_for_components_without_nested_plain_text() {
+        for element in [
+            CardElement::markdown("Thinking..."),
+            CardElement::callback_button("Continue", json!({ "choice": "continue" }))
+                .expect("button"),
+        ] {
+            let error = element
+                .plain_text_element_id("stream_text")
+                .expect_err("only a text div can expose a streaming plain-text target");
+            assert!(matches!(error, Error::Validation(_)));
+        }
     }
 
     #[test]

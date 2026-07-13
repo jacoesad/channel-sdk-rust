@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::card::{Card, CardId};
+use crate::card::{Card, CardId, CardSettings, validate_card_element_content, validate_element_id};
 use crate::message::MessageId;
 use crate::{Error, Result};
 
@@ -11,6 +11,7 @@ use super::{OpenApiClient, OpenApiTransport};
 const CARD_ENTITY_PATH: &str = "/open-apis/cardkit/v1/cards";
 const CALLBACK_CARD_UPDATE_PATH: &str = "/open-apis/interactive/v1/card/update";
 const MESSAGE_PATH: &str = "/open-apis/im/v1/messages";
+const MAX_CARD_SETTINGS_CHARS: usize = 100_000;
 const MAX_CARD_UPDATE_UUID_CHARS: usize = 64;
 const MAX_CARD_UPDATE_SEQUENCE: u32 = i32::MAX as u32;
 
@@ -84,6 +85,64 @@ where
         let path = format!("{CARD_ENTITY_PATH}/{}", card_id.as_str());
         let request = UpdateCardEntityRequest {
             card: CardEntityPayload::from_card(card)?,
+            sequence: options.sequence,
+            uuid: options.uuid,
+        };
+        let _: Value = self.put_tenant_json(&path, &request).await?;
+        Ok(())
+    }
+
+    /// Updates the streaming configuration or summary of a CardKit entity.
+    ///
+    /// `options.sequence` must be strictly greater than the sequence used by
+    /// the previous CardKit operation on the same entity.
+    pub async fn update_card_settings(
+        &self,
+        card_id: &CardId,
+        settings: &CardSettings,
+        options: CardUpdateOptions,
+    ) -> Result<()> {
+        card_id.validate()?;
+        settings.validate()?;
+        options.validate()?;
+        let settings = serde_json::to_string(settings)?;
+        if settings.chars().count() > MAX_CARD_SETTINGS_CHARS {
+            return Err(Error::Validation(format!(
+                "serialized card settings must be at most {MAX_CARD_SETTINGS_CHARS} characters"
+            )));
+        }
+        let path = format!("{CARD_ENTITY_PATH}/{}/settings", card_id.as_str());
+        let request = UpdateCardSettingsRequest {
+            settings,
+            sequence: options.sequence,
+            uuid: options.uuid,
+        };
+        let _: Value = self.patch_tenant_json(&path, &request).await?;
+        Ok(())
+    }
+
+    /// Replaces the full text of one streaming CardKit text element.
+    ///
+    /// The target card must already have streaming mode enabled. When the
+    /// previous text is a prefix of `content`, Lark/Feishu renders only the
+    /// appended suffix with its configured typewriter effect.
+    pub async fn update_card_element_content(
+        &self,
+        card_id: &CardId,
+        element_id: &str,
+        content: &str,
+        options: CardUpdateOptions,
+    ) -> Result<()> {
+        card_id.validate()?;
+        validate_element_id(element_id)?;
+        validate_card_element_content(content)?;
+        options.validate()?;
+        let path = format!(
+            "{CARD_ENTITY_PATH}/{}/elements/{element_id}/content",
+            card_id.as_str()
+        );
+        let request = UpdateCardElementContentRequest {
+            content,
             sequence: options.sequence,
             uuid: options.uuid,
         };
@@ -181,6 +240,22 @@ struct UpdateCardEntityRequest {
     uuid: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+struct UpdateCardSettingsRequest {
+    settings: String,
+    sequence: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    uuid: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct UpdateCardElementContentRequest<'a> {
+    content: &'a str,
+    sequence: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    uuid: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct CreateCardEntityResponse {
     data: CreateCardEntityData,
@@ -196,6 +271,7 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
+    use crate::card::MAX_CARD_ELEMENT_CONTENT_CHARS;
     use crate::lark_openapi::test_support::{FakeTransport, block_on};
     use crate::lark_openapi::{HttpMethod, HttpResponse};
     use crate::message::{MessageContent, MessageId, Recipient};
@@ -447,6 +523,204 @@ mod tests {
             .expect_err("invalid card update uuid must fail");
             assert!(matches!(error, Error::Validation(_)));
         }
+        assert!(transport.calls().is_empty());
+    }
+
+    #[test]
+    fn update_card_settings_patches_serialized_settings_and_options() {
+        let transport = FakeTransport::new(vec![
+            HttpResponse::json(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "tenant-token-1",
+                    "expire": 7200
+                }),
+            ),
+            HttpResponse::json(200, json!({ "code": 0, "msg": "ok", "data": {} })),
+        ]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+        let card_id = CardId::new("7355372766134157313").expect("card id");
+        let settings = CardSettings::new()
+            .streaming_mode(false)
+            .summary("Finished");
+
+        block_on(client.update_card_settings(
+            &card_id,
+            &settings,
+            CardUpdateOptions::new(3).uuid("settings-3"),
+        ))
+        .expect("updated card settings");
+
+        let calls = transport.calls();
+        assert_eq!(calls[1].method, HttpMethod::Patch);
+        assert_eq!(
+            calls[1].url.as_str(),
+            "https://open.feishu.cn/open-apis/cardkit/v1/cards/7355372766134157313/settings"
+        );
+        assert_eq!(calls[1].body["sequence"], 3);
+        assert_eq!(calls[1].body["uuid"], "settings-3");
+        let settings: Value =
+            serde_json::from_str(calls[1].body["settings"].as_str().expect("settings string"))
+                .expect("settings json");
+        assert_eq!(settings["config"]["streaming_mode"], false);
+        assert_eq!(settings["config"]["summary"]["content"], "Finished");
+    }
+
+    #[test]
+    fn update_card_element_content_puts_full_text_and_options() {
+        let transport = FakeTransport::new(vec![
+            HttpResponse::json(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "tenant-token-1",
+                    "expire": 7200
+                }),
+            ),
+            HttpResponse::json(200, json!({ "code": 0, "msg": "ok", "data": {} })),
+        ]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+        let card_id = CardId::new("7355372766134157313").expect("card id");
+
+        block_on(client.update_card_element_content(
+            &card_id,
+            "stream_md",
+            "Full accumulated Markdown",
+            CardUpdateOptions::new(2).uuid("content-2"),
+        ))
+        .expect("updated card element content");
+
+        let calls = transport.calls();
+        assert_eq!(calls[1].method, HttpMethod::Put);
+        assert_eq!(
+            calls[1].url.as_str(),
+            "https://open.feishu.cn/open-apis/cardkit/v1/cards/7355372766134157313/elements/stream_md/content"
+        );
+        assert_eq!(calls[1].body["content"], "Full accumulated Markdown");
+        assert_eq!(calls[1].body["sequence"], 2);
+        assert_eq!(calls[1].body["uuid"], "content-2");
+    }
+
+    #[test]
+    fn update_card_settings_rejects_empty_or_oversized_settings_before_authentication() {
+        let transport = FakeTransport::new(vec![]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+        let card_id = CardId::new("7355372766134157313").expect("card id");
+
+        for settings in [
+            CardSettings::new(),
+            CardSettings::new().summary("x".repeat(MAX_CARD_SETTINGS_CHARS + 1)),
+        ] {
+            let error = block_on(client.update_card_settings(
+                &card_id,
+                &settings,
+                CardUpdateOptions::new(1),
+            ))
+            .expect_err("invalid settings must fail");
+            assert!(matches!(error, Error::Validation(_)));
+        }
+        assert!(transport.calls().is_empty());
+    }
+
+    #[test]
+    fn update_card_element_content_rejects_invalid_inputs_before_authentication() {
+        let transport = FakeTransport::new(vec![]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+        let card_id = CardId::new("7355372766134157313").expect("card id");
+
+        for (element_id, content) in [
+            ("1-invalid", "content".to_owned()),
+            ("stream_md", String::new()),
+            ("stream_md", "界".repeat(MAX_CARD_ELEMENT_CONTENT_CHARS + 1)),
+        ] {
+            let error = block_on(client.update_card_element_content(
+                &card_id,
+                element_id,
+                &content,
+                CardUpdateOptions::new(1),
+            ))
+            .expect_err("invalid element update must fail");
+            assert!(matches!(error, Error::Validation(_)));
+        }
+        assert!(transport.calls().is_empty());
+    }
+
+    #[test]
+    fn streaming_card_updates_accept_unicode_and_exact_documented_limits() {
+        let transport = FakeTransport::new(vec![
+            HttpResponse::json(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "tenant-token-1",
+                    "expire": 7200
+                }),
+            ),
+            HttpResponse::json(200, json!({ "code": 0, "msg": "ok", "data": {} })),
+            HttpResponse::json(200, json!({ "code": 0, "msg": "ok", "data": {} })),
+        ]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+        let card_id = CardId::new("7355372766134157313").expect("card id");
+        let empty_settings = serde_json::to_string(&CardSettings::new().summary(""))
+            .expect("empty summary settings");
+        let settings = CardSettings::new()
+            .summary("界".repeat(MAX_CARD_SETTINGS_CHARS - empty_settings.chars().count()));
+        let serialized_settings = serde_json::to_string(&settings).expect("settings");
+        assert_eq!(serialized_settings.chars().count(), MAX_CARD_SETTINGS_CHARS);
+        let unicode_uuid = "界".repeat(MAX_CARD_UPDATE_UUID_CHARS);
+
+        block_on(client.update_card_settings(
+            &card_id,
+            &settings,
+            CardUpdateOptions::new(1).uuid(unicode_uuid.clone()),
+        ))
+        .expect("exact-limit settings update");
+        block_on(client.update_card_element_content(
+            &card_id,
+            "stream_md",
+            &"界".repeat(MAX_CARD_ELEMENT_CONTENT_CHARS),
+            CardUpdateOptions::new(MAX_CARD_UPDATE_SEQUENCE),
+        ))
+        .expect("exact-limit content update");
+
+        let calls = transport.calls();
+        assert_eq!(calls[1].body["uuid"], unicode_uuid);
+        assert_eq!(calls[1].body["sequence"], 1);
+        assert_eq!(calls[2].body["sequence"], MAX_CARD_UPDATE_SEQUENCE);
+        assert_eq!(
+            calls[2].body["content"]
+                .as_str()
+                .expect("content")
+                .chars()
+                .count(),
+            MAX_CARD_ELEMENT_CONTENT_CHARS
+        );
+    }
+
+    #[test]
+    fn streaming_card_updates_reject_invalid_options_before_authentication() {
+        let transport = FakeTransport::new(vec![]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+        let card_id = CardId::new("7355372766134157313").expect("card id");
+        let settings = CardSettings::new().streaming_mode(true);
+
+        let settings_error =
+            block_on(client.update_card_settings(&card_id, &settings, CardUpdateOptions::new(0)))
+                .expect_err("zero sequence must fail");
+        assert!(matches!(settings_error, Error::Validation(_)));
+
+        let content_error = block_on(client.update_card_element_content(
+            &card_id,
+            "stream_md",
+            "content",
+            CardUpdateOptions::new(1).uuid("界".repeat(MAX_CARD_UPDATE_UUID_CHARS + 1)),
+        ))
+        .expect_err("oversized uuid must fail");
+        assert!(matches!(content_error, Error::Validation(_)));
         assert!(transport.calls().is_empty());
     }
 

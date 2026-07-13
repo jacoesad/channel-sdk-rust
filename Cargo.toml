@@ -41,6 +41,10 @@ name = "cards"
 required-features = ["reqwest-transport"]
 
 [[example]]
+name = "card_streaming"
+required-features = ["reqwest-transport"]
+
+[[example]]
 name = "ws_connect"
 required-features = ["reqwest-transport", "websocket"]
 

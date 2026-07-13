@@ -19,6 +19,8 @@ The selected domain comes from `ChannelConfig`:
 | Delayed Callback Card Update | `POST /open-apis/interactive/v1/card/update` | `OpenApiClient::update_message_card_with_callback_token` |
 | Create Card Entity | `POST /open-apis/cardkit/v1/cards` | `OpenApiClient::create_card_entity` |
 | Full Update Card Entity | `PUT /open-apis/cardkit/v1/cards/{card_id}` | `OpenApiClient::update_card_entity` |
+| Update Card Settings | `PATCH /open-apis/cardkit/v1/cards/{card_id}/settings` | `OpenApiClient::update_card_settings` |
+| Stream Card Element Text | `PUT /open-apis/cardkit/v1/cards/{card_id}/elements/{element_id}/content` | `OpenApiClient::update_card_element_content` |
 | WebSocket Endpoint | `POST /callback/ws/endpoint` | `OpenApiClient::websocket_endpoint` |
 | Receive Message Event | WebSocket event `im.message.receive_v1` | `parse_lark_event_payload`, `ChannelEvent::parse_lark_payload` |
 | Card Action Callback | WebSocket callback `card.action.trigger` | `parse_lark_event_payload`, `ChannelEvent::parse_lark_payload` |
@@ -34,6 +36,9 @@ Official docs:
 - [Delayed Callback Card Update](https://open.feishu.cn/document/ukTMukTMukTM/uMDO1YjLzgTN24yM4UjN)
 - [Create Card Entity](https://open.feishu.cn/document/cardkit-v1/card/create.md)
 - [Full Update Card Entity](https://open.feishu.cn/document/cardkit-v1/card/update.md)
+- [Update Card Settings](https://open.feishu.cn/document/cardkit-v1/card/settings.md)
+- [Stream Card Element Text](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/cardkit-v1/card-element/content)
+- [Streaming Card Guide](https://open.feishu.cn/document/cardkit-v1/streaming-updates-openapi-overview)
 - [Receive Message](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive.md)
 - [Card Action Callback](https://open.feishu.cn/document/feishu-cards/card-callback-communication.md)
 - [Use long connections to receive events](https://open.feishu.cn/document/server-docs/event-subscription-guide/event-subscription-configure-/request-url-configuration-case.md)
@@ -139,6 +144,8 @@ For received messages, resource descriptors are derived from the official receiv
 
 `Card` represents validated CardKit JSON 2.0. `CardBuilder` emits `schema=2.0`, a shared-card `config.update_multi=true` setting, and common header/body components. `CardElement::raw` and `Card::from_value` preserve access to official CardKit fields and components that are not modeled by the convenience builder.
 
+`CardBuilder::streaming` enables `config.streaming_mode` and accepts a typed `CardStreamingConfig`. The default configuration follows the official guide with a 70 ms print frequency, one character per print step, and the `fast` strategy. `CardStreamingPlatformValues` can override Android, iOS, and PC values independently. Assign a stable target ID with `CardElement::element_id` for Markdown or `CardElement::plain_text_element_id` for the nested element created by `CardElement::text`, and use `CardBuilder::summary` to control the chat preview.
+
 Two update identities are intentionally distinct:
 
 - `OpenApiClient::update_message_card` targets the `message_id` returned after sending an inline card. The official endpoint requires `config.update_multi=true` on the card before and after the update, and only supports messages sent within the previous 14 days.
@@ -147,7 +154,7 @@ Two update identities are intentionally distinct:
 
 CardKit entity updates require a strictly increasing positive `sequence` for every operation on the same card. `CardUpdateOptions` validates the documented `1..=2147483647` range and optional 64-character `uuid`, but sequence persistence and cross-task synchronization remain caller responsibilities. Card entities are valid for 14 days and can be sent once.
 
-Element-level CardKit updates and streaming-mode configuration remain later Milestone 5 work.
+For native typewriter output, call `OpenApiClient::update_card_element_content` with the complete accumulated text on every update. When the previous text is a prefix of the new text, the client animates the appended suffix. `CardElementContent` applies the `1..=100000` Unicode-character field limit for callers that must preflight content before creating or sending a card. The platform also imposes a separate 30 KiB (30,720 UTF-8 bytes) limit on the complete serialized card; `Card` validates this limit whenever a complete state is constructed, while the low-level element update cannot preflight it because it does not hold the card's current server-side state. `OpenApiClient::update_card_settings` accepts `CardSettings` to change streaming mode, rendering configuration, or the preview summary. Callers should explicitly disable streaming mode after the final content update; the platform otherwise closes it automatically after 10 minutes. The platform limits card and component operations on one entity to 10 updates per second, and an active streaming card cannot be immediately replaced from an interaction callback until streaming mode is closed. The low-level APIs do not allocate sequence values or throttle concurrent updates. High-level buffering, throttling, and long-message continuation remain later Milestone 5 work.
 
 ## Error Handling
 

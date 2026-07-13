@@ -1,6 +1,7 @@
 //! CardKit 2.0 card primitives and builders.
 
 mod builder;
+mod streaming;
 mod validation;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
@@ -9,7 +10,14 @@ use serde_json::{Map, Value, json};
 use crate::Result;
 
 pub use builder::{CardBuilder, CardButtonStyle, CardElement};
+pub(crate) use streaming::validate_card_element_content;
+pub use streaming::{
+    CardElementContent, CardSettings, CardStreamingConfig, CardStreamingPlatformValues,
+    CardStreamingPrintStrategy, MAX_CARD_ELEMENT_CONTENT_CHARS,
+};
+pub use validation::MAX_CARD_JSON_BYTES;
 use validation::validate_card_id;
+pub(crate) use validation::validate_element_id;
 
 const CARD_SCHEMA: &str = "2.0";
 
@@ -17,9 +25,9 @@ const CARD_SCHEMA: &str = "2.0";
 ///
 /// Use [`Card::builder`] for common components or [`Card::from_value`] when
 /// working with official components not modeled by this crate yet. Validation
-/// covers the shared-card, root/body, component-count, and identifier invariants
-/// needed by this SDK; Lark/Feishu remains authoritative for component-specific
-/// fields passed through raw JSON.
+/// covers the shared-card, root/body, serialized-size, component-count, and
+/// identifier invariants needed by this SDK; Lark/Feishu remains authoritative
+/// for component-specific fields passed through raw JSON.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Card(Value);
 

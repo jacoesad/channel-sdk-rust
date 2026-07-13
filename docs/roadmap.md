@@ -110,7 +110,7 @@ Milestone 4 starts from the minimal inbound message parser delivered in Mileston
 - Simple Markdown/text conversion into Feishu/Lark rich message content (#31)
 - Structured mention and link helpers where supported by Lark/Feishu message formats (#31)
 - Card creation and update helpers (#32)
-- Card callback response and update helpers
+- Card callback response and update helpers (#33)
 - Markdown streaming reply helper
 - Update throttling for long-running agent output
 - Continuation behavior for long messages

@@ -10,6 +10,8 @@ use super::{CARD_SCHEMA, Card};
 const MAX_CARD_ID_CHARS: usize = 20;
 const MAX_CARD_COMPONENTS: usize = 200;
 const MAX_ELEMENT_ID_CHARS: usize = 20;
+/// Maximum compact UTF-8 JSON size accepted for a CardKit card.
+pub const MAX_CARD_JSON_BYTES: usize = 30 * 1024;
 const OPAQUE_CARD_FIELDS: [&str; 6] = [
     "chart_spec",
     "data",
@@ -21,6 +23,13 @@ const OPAQUE_CARD_FIELDS: [&str; 6] = [
 
 impl Card {
     pub(crate) fn validate(&self) -> Result<()> {
+        let serialized_bytes = serde_json::to_vec(&self.0)?.len();
+        if serialized_bytes > MAX_CARD_JSON_BYTES {
+            return Err(Error::Validation(format!(
+                "card JSON must be at most {MAX_CARD_JSON_BYTES} UTF-8 bytes"
+            )));
+        }
+
         let root = self
             .0
             .as_object()
@@ -103,7 +112,7 @@ impl Card {
     }
 }
 
-pub(super) fn validate_element_id(element_id: &str) -> Result<()> {
+pub(crate) fn validate_element_id(element_id: &str) -> Result<()> {
     let mut chars = element_id.chars();
     let Some(first) = chars.next() else {
         return Err(Error::Validation(
@@ -341,6 +350,25 @@ mod tests {
     }
 
     #[test]
+    fn enforces_exact_card_json_byte_limit() {
+        Card::from_value(card_value_with_serialized_size(MAX_CARD_JSON_BYTES))
+            .expect("exact card byte limit");
+
+        let error = Card::from_value(card_value_with_serialized_size(MAX_CARD_JSON_BYTES + 1))
+            .expect_err("one byte over card limit must fail");
+        assert!(matches!(error, Error::Validation(_)));
+    }
+
+    #[test]
+    fn card_json_limit_counts_escaping_and_multibyte_utf8() {
+        for content in ["\"".repeat(16_000), "界".repeat(11_000)] {
+            let error = Card::from_value(card_value_with_content(content))
+                .expect_err("serialized bytes above card limit must fail");
+            assert!(matches!(error, Error::Validation(_)));
+        }
+    }
+
+    #[test]
     fn card_id_rejects_url_path_delimiters() {
         for card_id in ["card/1", "card?x=1", "card#fragment", "card%2F1"] {
             let error = CardId::new(card_id).expect_err("unsafe card_id must fail");
@@ -371,6 +399,30 @@ mod tests {
                 "Deployment status"
             );
         }
+    }
+
+    fn card_value_with_serialized_size(target_bytes: usize) -> Value {
+        let empty = card_value_with_content(String::new());
+        let overhead = serde_json::to_vec(&empty).expect("card JSON").len();
+        assert!(target_bytes >= overhead);
+        let card = card_value_with_content("x".repeat(target_bytes - overhead));
+        assert_eq!(
+            serde_json::to_vec(&card).expect("sized card JSON").len(),
+            target_bytes
+        );
+        card
+    }
+
+    fn card_value_with_content(content: String) -> Value {
+        json!({
+            "schema": "2.0",
+            "body": {
+                "elements": [{
+                    "tag": "markdown",
+                    "content": content
+                }]
+            }
+        })
     }
 
     #[test]
