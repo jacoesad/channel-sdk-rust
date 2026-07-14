@@ -1,10 +1,10 @@
 # Messages
 
-This document describes the message behavior currently exposed by `lark-channel`, including outbound text and rich-text messages, replies, and inbound message normalization.
+This document describes the message behavior currently exposed by `lark-channel`, including outbound text and rich-text messages, high-level Markdown streaming, replies, and inbound message normalization.
 
 ## Current Scope
 
-The SDK currently provides a high-level `MessageSender` for text and rich-text messages and replies:
+The SDK currently provides a high-level `MessageSender` for text, rich-text, and streaming Markdown messages and replies:
 
 - `MessageSender::message`
 - `MessageSender::text_message`
@@ -18,9 +18,13 @@ The SDK currently provides a high-level `MessageSender` for text and rich-text m
 - `MessageSender::markdown_reply`
 - `MessageSender::card_reply`
 - `MessageSender::card_reference_reply`
+- `MessageSender::markdown_stream_message`
+- `MessageSender::markdown_stream_reply`
 - `MessageSenderOptions`
 - `MessageBuilder`
 - `MessageReplyBuilder`
+- `MarkdownStreamBuilder`
+- `MarkdownStream`
 
 `message` and `reply` accept caller-provided `MessageContent`. `MessageContent::Card` remains the raw `interactive` escape hatch for official payloads such as template cards. `text_message` and `text_reply` are convenience entry points for plain text content. `post_message` and `post_reply` accept typed `PostContent`; `markdown_message` and `markdown_reply` wrap Markdown in native rich-text content automatically. `card_message` and `card_reply` accept a validated `Card` and send inline CardKit 2.0 JSON, while the card-reference variants send a pre-created `CardId`.
 
@@ -79,7 +83,7 @@ The loop sends the official application-level heartbeat ping at the endpoint-pro
 
 Lower-level raw message entry points are available under `lark_channel::lark_openapi` for callers that need to pass `MessageContent` directly. See [lark-api.md](lark-api.md) for the exact official API mappings.
 
-Media upload, high-level streaming reply orchestration, and richer retry policies are planned follow-up work. The low-level CardKit streaming calls are documented in [lark-api.md](lark-api.md).
+Media upload, automatic stream throttling, long-content continuation, and richer retry policies are planned follow-up work. The low-level CardKit streaming calls are documented in [lark-api.md](lark-api.md).
 
 Runnable examples are documented in [../examples/README.md](../examples/README.md), including low-level create/reply calls and the high-level `MessageSender` flow.
 
@@ -171,6 +175,31 @@ let message_id = sender
 ```
 
 Use `OpenApiClient::update_message_card` for unconditional replacement of an inline sent card by `message_id`. For CardKit entity workflows, create the entity with `OpenApiClient::create_card_entity` and send its `CardId` with `card_reference_message` or `card_reference_reply`. Use `OpenApiClient::update_card_entity` only for full-card replacement; native streaming uses `OpenApiClient::update_card_element_content` for accumulated text and `OpenApiClient::update_card_settings` to close streaming mode. Every CardKit entity operation requires a strictly increasing sequence. See [lark-api.md](lark-api.md) for exact endpoint mappings and lifecycle constraints.
+
+## High-Level Markdown Streaming
+
+`MessageSender::markdown_stream_message` sends a new CardKit stream to a chat or user. `MessageSender::markdown_stream_reply` replies to an existing message and can opt into thread placement. Both return `MarkdownStreamBuilder`; `start` creates the CardKit entity, sends its reference, and returns a `MarkdownStream` that owns sequence progression and operation idempotency values.
+
+```rust
+let mut builder = sender
+    .markdown_stream_reply(MessageId("om_xxx".to_owned()))
+    .reply_in_thread(true)
+    .initial_text("Thinking...")
+    .streaming_summary("[Generating...]");
+
+let mut stream = builder.start().await?;
+stream.append("First chunk").await?;
+stream.append(" and second chunk").await?;
+stream.finish().await?;
+```
+
+`append` treats its input as a delta and sends the accumulated full text. `set_content` accepts a complete snapshot instead. Empty chunks and identical snapshots are no-ops. `finish` supplies the configured empty fallback if no output was produced, disables streaming mode, and derives a compact final preview summary unless `final_summary` overrides it.
+
+Each content or finish call currently performs one OpenAPI update immediately. Applications must keep the update rate within the platform limit; the runnable example uses at least 100 milliseconds between calls. Automatic buffering and throttling remain follow-up work. The helper validates the 100,000-character streaming field limit and the separate 30 KiB whole-card limit before an update, so oversized output must be continued in another message by application code until the planned continuation helper is available. When complete output is already known, `MarkdownStreamBuilder::preflight_content` checks both limits before card creation or delivery; the runnable example uses this path before `start`.
+
+`start` does not retry CardKit entity creation because that endpoint has no idempotency key. If the creation response itself is lost, the resulting `CardId` cannot be recovered and creating again may allocate another unsent entity. After entity creation is acknowledged, the builder keeps the prepared `CardId`, target, delivery options, and message UUID until message delivery is acknowledged. If delivery returns a transport error, retain the same mutable builder and call `start` again; `prepared_card_id` reports whether creation reached that reusable prepared state.
+
+For content and finish operations, internal transport retries reuse the same payload, sequence, and UUID. If every attempt ends in a transport error, `MarkdownStream` retains that exact operation and reports it through `has_pending_operation`. Call `retry_pending`, or repeat the same content operation, before changing content. A definitive API, validation, serialization, or HTTP status error clears pending state without advancing local content or sequence. Dropping an unfinished stream cannot perform asynchronous cleanup; the platform closes streaming mode after its timeout, but callers should normally call `finish` explicitly.
 
 To acknowledge a card action with immediate feedback:
 

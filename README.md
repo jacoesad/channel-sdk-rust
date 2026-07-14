@@ -13,7 +13,7 @@ The first target is to support agent/bot bridges such as `lark-coding-agent-brid
 
 ## Status
 
-Experimental. The crate currently contains the public module skeleton, shared data types, an OpenAPI foundation for app and tenant access-token management, outbound text and native Markdown/post messaging, CardKit 2.0 creation and update helpers, replies, idempotency options, an early WebSocket endpoint/connection foundation, inbound message and card action parsing, normalized inbound text/post/mention handling, lightweight inbound resource descriptors, split-packet event reassembly, a single-connection event consumer, a reconnecting event loop with timer-driven heartbeat support, and a minimal echo bot example.
+Experimental. The crate currently contains the public module skeleton, shared data types, an OpenAPI foundation for app and tenant access-token management, outbound text and native Markdown/post messaging, CardKit 2.0 creation and update helpers, high-level Markdown streaming messages and replies, idempotency options, an early WebSocket endpoint/connection foundation, inbound message and card action parsing, normalized inbound text/post/mention handling, lightweight inbound resource descriptors, split-packet event reassembly, a single-connection event consumer, a reconnecting event loop with timer-driven heartbeat support, and a minimal echo bot example.
 
 ## Planned Modules
 
@@ -73,7 +73,7 @@ let message_id = sender
     .await?;
 ```
 
-`app_id` and `app_secret` come from the Lark/Feishu developer console. See [docs/messages.md](docs/messages.md) for message semantics, [docs/lark-api.md](docs/lark-api.md) for the implemented Lark/Feishu OpenAPI mapping, and [examples/README.md](examples/README.md) for runnable example configuration.
+`app_id` and `app_secret` come from the Lark/Feishu developer console. See [docs/messages.md](docs/messages.md) for message and streaming semantics, [docs/lark-api.md](docs/lark-api.md) for the implemented Lark/Feishu OpenAPI mapping, and [examples/README.md](examples/README.md) for runnable example configuration.
 
 ## Roadmap
 
