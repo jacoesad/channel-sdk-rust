@@ -5,13 +5,14 @@ use std::time::Duration;
 use lark_channel::lark_openapi::{OpenApiClient, ReqwestOpenApiTransport};
 use lark_channel::{
     ChannelConfig, Error, MarkdownStream, MarkdownStreamBuilder, MessageId, MessageSender,
-    Recipient,
+    Recipient, ThrottledMarkdownStream,
 };
 
 const DEFAULT_TEXT: &str =
     "## Streaming reply\n\nThis content is arriving through the high-level Markdown stream.";
 const DEFAULT_CHUNK_CHARS: usize = 12;
 const DEFAULT_INTERVAL_MS: u64 = 150;
+const DEFAULT_CHUNK_DELAY_MS: u64 = 25;
 const MIN_INTERVAL_MS: u64 = 100;
 const DEFAULT_MAX_ATTEMPTS: usize = 3;
 
@@ -70,8 +71,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into());
     }
 
-    let interval = Duration::from_millis(interval_ms);
-    let mut stream = match start_with_retry(&mut builder, max_attempts, interval).await {
+    let update_interval = Duration::from_millis(interval_ms);
+    let chunk_delay = Duration::from_millis(
+        optional_u64("LARK_STREAM_CHUNK_DELAY_MS")?.unwrap_or(DEFAULT_CHUNK_DELAY_MS),
+    );
+    let stream = match start_with_retry(&mut builder, max_attempts, update_interval).await {
         Ok(stream) => stream,
         Err(error) => {
             if let Some(card_id) = builder.prepared_card_id() {
@@ -83,15 +87,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err(error.into());
         }
     };
+    let mut stream = stream.throttle(update_interval);
     let chunks = chunk_text(&content, chunk_chars);
     for chunk in &chunks {
-        if let Err(error) = append_with_retry(&mut stream, chunk, max_attempts, interval).await {
+        if let Err(error) =
+            append_with_retry(&mut stream, chunk, max_attempts, update_interval).await
+        {
             report_stream_failure(&stream);
             return Err(error.into());
         }
-        tokio::time::sleep(interval).await;
+        tokio::time::sleep(chunk_delay).await;
     }
-    if let Err(error) = finish_with_retry(&mut stream, max_attempts, interval).await {
+    if let Err(error) = finish_with_retry(&mut stream, max_attempts, update_interval).await {
         report_stream_failure(&stream);
         return Err(error.into());
     }
@@ -125,7 +132,7 @@ async fn start_with_retry<'a>(
 }
 
 async fn append_with_retry(
-    stream: &mut MarkdownStream<'_, ReqwestOpenApiTransport>,
+    stream: &mut ThrottledMarkdownStream<'_, ReqwestOpenApiTransport>,
     chunk: &str,
     max_attempts: usize,
     interval: Duration,
@@ -136,7 +143,7 @@ async fn append_with_retry(
         let result = if attempt == 1 {
             stream.append(chunk).await
         } else {
-            stream.retry_pending().await
+            stream.flush().await
         };
         match result {
             Ok(()) => return Ok(()),
@@ -149,19 +156,14 @@ async fn append_with_retry(
 }
 
 async fn finish_with_retry(
-    stream: &mut MarkdownStream<'_, ReqwestOpenApiTransport>,
+    stream: &mut ThrottledMarkdownStream<'_, ReqwestOpenApiTransport>,
     max_attempts: usize,
     interval: Duration,
 ) -> lark_channel::Result<()> {
     let mut attempt = 0;
     loop {
         attempt += 1;
-        let result = if attempt == 1 {
-            stream.finish().await
-        } else {
-            stream.retry_pending().await
-        };
-        match result {
+        match stream.finish().await {
             Ok(()) => return Ok(()),
             Err(Error::Transport(_)) if attempt < max_attempts => {
                 tokio::time::sleep(interval).await;
@@ -171,12 +173,13 @@ async fn finish_with_retry(
     }
 }
 
-fn report_stream_failure(stream: &MarkdownStream<'_, ReqwestOpenApiTransport>) {
+fn report_stream_failure(stream: &ThrottledMarkdownStream<'_, ReqwestOpenApiTransport>) {
     eprintln!(
-        "stream update failed: card_id={}, message_id={}, pending={}",
+        "stream update failed: card_id={}, message_id={}, pending={}, buffered={}",
         stream.card_id().as_str(),
         stream.message_id().0,
-        stream.has_pending_operation()
+        stream.has_pending_operation(),
+        stream.has_buffered_content()
     );
 }
 

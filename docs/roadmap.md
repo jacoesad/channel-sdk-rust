@@ -14,7 +14,7 @@ Milestone 0 established the repository and public crate shape:
 - A `ChannelClient` trait for future transport implementations
 - CI for formatting, clippy, and tests
 
-The project has completed Milestone 4 with a bridge-facing normalized message contract for common inbound text, post, mention, unsupported, malformed-content, missing-content, and resource-bearing messages. Milestone 5 is in progress with rich-message, CardKit, card callback, low-level streaming, and high-level Markdown streaming lifecycle helpers; automatic stream throttling, long-content continuation, and media transfer remain follow-up work.
+The project has completed Milestone 4 with a bridge-facing normalized message contract for common inbound text, post, mention, unsupported, malformed-content, missing-content, and resource-bearing messages. Milestone 5 is in progress with rich-message, CardKit, card callback, low-level streaming, and high-level Markdown streaming lifecycle and throttling helpers; long-content continuation and media transfer remain follow-up work.
 
 ## Architecture Boundary
 

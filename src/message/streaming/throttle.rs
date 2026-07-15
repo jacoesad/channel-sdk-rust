@@ -13,6 +13,12 @@ use super::MarkdownStream;
 /// created: a later content call, `flush`, or `finish` drives delivery.
 /// Applications that need buffered content to appear during a producer pause
 /// can schedule `flush` using [`Self::next_flush_in`].
+///
+/// The current platform guidance limits card operations on one entity to ten
+/// per second. Callers that want the wrapper to enforce that conservative rate
+/// should use an interval of at least 100 milliseconds. The interval itself is
+/// not restricted so tests and applications with stricter external scheduling
+/// can choose their own policy.
 #[derive(Debug)]
 pub struct ThrottledMarkdownStream<'a, T> {
     stream: MarkdownStream<'a, T>,
