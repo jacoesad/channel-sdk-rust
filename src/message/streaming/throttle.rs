@@ -236,7 +236,11 @@ where
     }
 
     fn sync_content_from_stream(&mut self) {
-        self.desired_content = self.stream.content().map(str::to_owned);
+        self.desired_content = self
+            .stream
+            .pending_content()
+            .or_else(|| self.stream.content())
+            .map(str::to_owned);
     }
 }
 
@@ -476,6 +480,42 @@ mod tests {
         assert_eq!(calls[4].body["sequence"], 2);
         assert_eq!(calls[5].body["sequence"], 2);
         assert_eq!(calls[4].body["uuid"], calls[5].body["uuid"]);
+    }
+
+    #[test]
+    fn pending_empty_fallback_is_preserved_before_finish_can_start() {
+        let transport = FakeTransport::new(vec![
+            Ok(token_response()),
+            Ok(card_response("7355372766134157409")),
+            Ok(message_response("om_pending_fallback")),
+            Err(Error::Transport("fallback response lost".to_owned())),
+            Ok(ok_response()),
+            Ok(ok_response()),
+        ]);
+        let sender = sender(&transport);
+        let mut stream = started_stream(&sender).throttle(INTERVAL);
+
+        let error = block_on(stream.finish()).expect_err("ambiguous fallback update");
+        assert!(matches!(error, Error::Transport(_)));
+        assert_eq!(stream.content(), Some("(no content)"));
+        assert_eq!(stream.flushed_content(), None);
+        assert!(stream.has_buffered_content());
+        assert!(stream.has_pending_operation());
+
+        make_due(&mut stream);
+        assert!(block_on(stream.flush_if_due()).expect("fallback replay"));
+        assert_eq!(stream.content(), Some("(no content)"));
+        assert_eq!(stream.flushed_content(), Some("(no content)"));
+        assert!(!stream.has_buffered_content());
+        assert!(!stream.has_pending_operation());
+
+        block_on(stream.finish()).expect("settings update");
+        assert!(stream.is_finished());
+        let calls = transport.calls();
+        assert_eq!(calls[3].body["sequence"], 1);
+        assert_eq!(calls[4].body["sequence"], 1);
+        assert_eq!(calls[3].body["uuid"], calls[4].body["uuid"]);
+        assert_eq!(calls[5].body["sequence"], 2);
     }
 
     fn sender(transport: &FakeTransport) -> MessageSender<FakeTransport> {
