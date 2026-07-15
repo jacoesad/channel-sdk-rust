@@ -137,7 +137,32 @@ cargo run --example card_streaming
 
 `LARK_STREAM_ELEMENT` accepts `markdown` or `plain_text`. Markdown stores `element_id` on the top-level component, while the plain-text CardKit component is a `div` whose actual streaming target is the nested `plain_text`; the example assigns the identifier at the correct level for each form.
 
-`LARK_STREAM_TEXT` must contain between 2 and 100,000 Unicode characters, and the resulting serialized card JSON must remain within the platform's separate 30 KiB (30,720 UTF-8 bytes) whole-card limit. The example validates the complete streaming and closed card states before any OpenAPI call, initializes the selected text element with its first character, then sends the complete text so the update is a prefix-preserving append and the client can render the native typewriter effect. It uses sequence `1` for the content update and `2` for the settings update. Production callers must coordinate a strictly increasing sequence across every operation on the same card. This example is a protocol smoke test; buffering, throttling, and continuation across oversized cards belong to the later high-level streaming reply helper.
+`LARK_STREAM_TEXT` must contain between 2 and 100,000 Unicode characters, and the resulting serialized card JSON must remain within the platform's separate 30 KiB (30,720 UTF-8 bytes) whole-card limit. The example validates the complete streaming and closed card states before any OpenAPI call, initializes the selected text element with its first character, then sends the complete text so the update is a prefix-preserving append and the client can render the native typewriter effect. It uses sequence `1` for the content update and `2` for the settings update. Production callers must coordinate a strictly increasing sequence across every operation on the same card. This example remains useful when an application needs direct control of the low-level protocol.
+
+## Stream Markdown with MessageSender
+
+`markdown_stream.rs` uses the high-level `MessageSender` lifecycle. It creates and sends one Markdown CardKit entity, accumulates chunk updates, owns sequence and idempotency values, and closes streaming mode when output finishes.
+
+```bash
+export LARK_APP_ID=cli_xxx
+export LARK_APP_SECRET=xxx
+
+# Send a new stream to a chat (LARK_OPEN_ID is also supported):
+export LARK_CHAT_ID=oc_xxx
+
+# Or reply to an existing message instead of setting a recipient:
+# export LARK_MESSAGE_ID=om_xxx
+# export LARK_REPLY_IN_THREAD=true
+
+export LARK_STREAM_TEXT=$'## Result\n\nStreaming output from lark-channel.'
+cargo run --example markdown_stream
+```
+
+`LARK_STREAM_TEXT` must be non-empty. `LARK_STREAM_CHUNK_CHARS` controls the Unicode character count per update and defaults to `12`. `LARK_STREAM_INTERVAL_MS` defaults to `150` and must be at least `100`, keeping this example within the platform guide's conservative per-card limit of 10 updates per second. `LARK_UUID` controls the message or reply idempotency key, and `LARK_MAX_ATTEMPTS` controls transport attempts.
+
+Target variables use this precedence: `LARK_MESSAGE_ID`, then `LARK_CHAT_ID`, then `LARK_OPEN_ID`. Unset stale variables when changing between reply, chat, and direct-user tests.
+
+The helper sends each `append` or `set_content` immediately; it does not yet throttle application-provided update rates automatically. The example therefore configures one internal attempt and performs any transport retries itself, preserving the same builder or pending stream operation and waiting `LARK_STREAM_INTERVAL_MS` between requests. Because this example knows the complete output before starting, it calls `MarkdownStreamBuilder::preflight_content` before any remote operation to check both the active and closed CardKit states against the 100,000-character element limit and 30 KiB whole-card limit. Automatic buffering/throttling and continuation across oversized output remain separate Milestone 5 work.
 
 ## WebSocket endpoint and connection
 

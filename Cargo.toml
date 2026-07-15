@@ -45,6 +45,10 @@ name = "card_streaming"
 required-features = ["reqwest-transport"]
 
 [[example]]
+name = "markdown_stream"
+required-features = ["reqwest-transport"]
+
+[[example]]
 name = "ws_connect"
 required-features = ["reqwest-transport", "websocket"]
 
@@ -75,4 +79,4 @@ url = "2"
 
 [dev-dependencies]
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }

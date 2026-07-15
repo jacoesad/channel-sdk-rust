@@ -182,28 +182,28 @@ where
         self.reply(parent_message_id, MessageContent::CardReference { card_id })
     }
 
-    async fn retry_transport_errors<F, Fut>(
+    pub(super) async fn retry_transport_errors<R, F, Fut>(
         &self,
         max_attempts: usize,
         mut operation: F,
-    ) -> Result<MessageId>
+    ) -> Result<R>
     where
         F: FnMut() -> Fut,
-        Fut: Future<Output = Result<MessageId>>,
+        Fut: Future<Output = Result<R>>,
     {
         let mut attempts = 0;
 
         loop {
             attempts += 1;
             match operation().await {
-                Ok(message_id) => return Ok(message_id),
+                Ok(value) => return Ok(value),
                 Err(error) if attempts < max_attempts && is_retryable(&error) => {}
                 Err(error) => return Err(error),
             }
         }
     }
 
-    fn max_attempts(&self, max_attempts: Option<usize>) -> usize {
+    pub(super) fn max_attempts(&self, max_attempts: Option<usize>) -> usize {
         max_attempts
             .unwrap_or_else(|| self.options.max_attempts())
             .max(1)
@@ -369,7 +369,7 @@ fn is_retryable(error: &Error) -> bool {
     matches!(error, Error::Transport(_))
 }
 
-fn resolve_uuid(uuid: Option<String>) -> Result<String> {
+pub(super) fn resolve_uuid(uuid: Option<String>) -> Result<String> {
     match uuid {
         Some(uuid) => validate_uuid(uuid),
         None => Ok(generate_idempotency_key()),
@@ -390,7 +390,7 @@ fn validate_uuid(uuid: String) -> Result<String> {
     Ok(uuid)
 }
 
-fn generate_idempotency_key() -> String {
+pub(super) fn generate_idempotency_key() -> String {
     let pid = std::process::id();
     let sequence = NEXT_IDEMPOTENCY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let nanos = SystemTime::now()

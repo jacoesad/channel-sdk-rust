@@ -6,9 +6,11 @@ use crate::media::ResourceDescriptor;
 
 mod post;
 mod sender;
+mod streaming;
 
 pub use post::{PostContent, PostContentBuilder, PostDocument, PostElement, PostStyle};
 pub use sender::{MessageBuilder, MessageReplyBuilder, MessageSender, MessageSenderOptions};
+pub use streaming::{MarkdownStream, MarkdownStreamBuilder};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MessageId(pub String);
