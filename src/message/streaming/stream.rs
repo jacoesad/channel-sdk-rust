@@ -1,8 +1,11 @@
+use std::time::Duration;
+
 use crate::card::{CardElementContent, CardSettings};
 use crate::lark_openapi::{CardUpdateOptions, OpenApiTransport};
 use crate::{CardId, Error, MessageId, Result};
 
 use super::super::sender::{MessageSender, generate_idempotency_key};
+use super::throttle::ThrottledMarkdownStream;
 use super::{
     MarkdownStreamCardProfile, STREAM_ELEMENT_ID, derive_summary, validate_stream_content_states,
 };
@@ -60,7 +63,7 @@ impl<'a, T> MarkdownStream<'a, T> {
     }
 }
 
-impl<T> MarkdownStream<'_, T>
+impl<'a, T> MarkdownStream<'a, T>
 where
     T: OpenApiTransport,
 {
@@ -93,6 +96,15 @@ where
     /// idempotent replay.
     pub fn has_pending_operation(&self) -> bool {
         self.pending.is_some()
+    }
+
+    /// Wraps this stream in a runtime-independent content update throttler.
+    ///
+    /// The first content update is sent immediately. Later updates that arrive
+    /// before `min_update_interval` elapses are coalesced until another update
+    /// reaches the interval or the caller invokes `flush` or `finish`.
+    pub fn throttle(self, min_update_interval: Duration) -> ThrottledMarkdownStream<'a, T> {
+        ThrottledMarkdownStream::new(self, min_update_interval)
     }
 
     /// Appends one delta verbatim and immediately pushes the accumulated text.
@@ -239,6 +251,24 @@ where
         self.profile.final_summary.clone().unwrap_or_else(|| {
             derive_summary(self.content().unwrap_or(self.profile.empty_text.as_str()))
         })
+    }
+
+    pub(super) fn validate_content(&self, content: &str) -> Result<()> {
+        validate_stream_content_states(content, &self.profile).map(|_| ())
+    }
+
+    pub(super) fn has_pending_finish(&self) -> bool {
+        matches!(
+            self.pending,
+            Some(PendingMarkdownStreamOperation::Finish { .. })
+        )
+    }
+
+    pub(super) fn pending_content(&self) -> Option<&str> {
+        match &self.pending {
+            Some(PendingMarkdownStreamOperation::Content { content, .. }) => Some(content.as_str()),
+            _ => None,
+        }
     }
 }
 

@@ -4,9 +4,11 @@ mod builder;
 mod stream;
 #[cfg(test)]
 mod test_support;
+mod throttle;
 
 pub use builder::MarkdownStreamBuilder;
 pub use stream::MarkdownStream;
+pub use throttle::ThrottledMarkdownStream;
 
 use crate::card::{CardElementContent, CardStreamingConfig};
 use crate::{Card, CardElement, Result};

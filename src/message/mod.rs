@@ -10,7 +10,7 @@ mod streaming;
 
 pub use post::{PostContent, PostContentBuilder, PostDocument, PostElement, PostStyle};
 pub use sender::{MessageBuilder, MessageReplyBuilder, MessageSender, MessageSenderOptions};
-pub use streaming::{MarkdownStream, MarkdownStreamBuilder};
+pub use streaming::{MarkdownStream, MarkdownStreamBuilder, ThrottledMarkdownStream};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MessageId(pub String);
