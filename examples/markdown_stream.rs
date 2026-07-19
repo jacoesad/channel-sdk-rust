@@ -13,7 +13,7 @@ const DEFAULT_TEXT: &str =
 const DEFAULT_CHUNK_CHARS: usize = 12;
 const DEFAULT_INTERVAL_MS: u64 = 150;
 const DEFAULT_CHUNK_DELAY_MS: u64 = 25;
-const MIN_INTERVAL_MS: u64 = 100;
+const MIN_INTERVAL_MS: u64 = 150;
 const DEFAULT_MAX_ATTEMPTS: usize = 3;
 
 #[derive(Debug, PartialEq, Eq)]

@@ -14,11 +14,12 @@ use super::MarkdownStream;
 /// Applications that need buffered content to appear during a producer pause
 /// can schedule `flush` using [`Self::next_flush_in`].
 ///
-/// The current platform guidance limits card operations on one entity to ten
-/// per second. Callers that want the wrapper to enforce that conservative rate
-/// should use an interval of at least 100 milliseconds. The interval itself is
-/// not restricted so tests and applications with stricter external scheduling
-/// can choose their own policy.
+/// The configured interval applies only to automatic content update attempts.
+/// Explicit [`Self::flush`] calls and [`Self::finish`] bypass it so callers can
+/// force out the buffered tail and close the stream. This type therefore
+/// coalesces generated content but is not an aggregate rate limiter for every
+/// CardKit operation. Applications that need a hard per-entity operation budget
+/// must schedule all explicit operations as part of their own policy.
 #[derive(Debug)]
 pub struct ThrottledMarkdownStream<'a, T> {
     stream: MarkdownStream<'a, T>,
@@ -326,6 +327,34 @@ mod tests {
         assert_eq!(calls_after_flush, 5);
         assert_eq!(transport.calls().len(), calls_after_flush);
         assert_eq!(stream.flushed_content(), Some("AB"));
+    }
+
+    #[test]
+    fn finish_bypasses_the_interval_for_the_tail_and_settings_update() {
+        let transport = FakeTransport::http(vec![
+            token_response(),
+            card_response("7355372766134157410"),
+            message_response("om_finish_bypass"),
+            ok_response(),
+            ok_response(),
+            ok_response(),
+        ]);
+        let sender = sender(&transport);
+        let mut stream = started_stream(&sender).throttle(Duration::from_secs(60));
+
+        block_on(stream.append("A")).expect("first update");
+        block_on(stream.append("B")).expect("buffered tail");
+        assert!(stream.next_flush_in().is_some_and(|wait| !wait.is_zero()));
+
+        block_on(stream.finish()).expect("tail flushed and stream closed");
+
+        let calls = transport.calls();
+        assert_eq!(calls.len(), 6);
+        assert_card_content_update(&calls[3], 1, "A");
+        assert_card_content_update(&calls[4], 2, "AB");
+        assert_eq!(calls[5].method, HttpMethod::Patch);
+        assert_eq!(calls[5].body["sequence"], 3);
+        assert!(stream.is_finished());
     }
 
     #[test]
