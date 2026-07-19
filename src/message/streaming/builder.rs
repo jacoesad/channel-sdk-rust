@@ -27,8 +27,9 @@ struct PreparedMarkdownStream {
 ///
 /// The stream owns CardKit entity creation, message or reply delivery, update
 /// sequencing, update idempotency keys, and finalization. Every `append` or
-/// `set_content` call currently performs an update immediately; automatic
-/// buffering and throttling are separate follow-up work.
+/// `set_content` call on the returned [`MarkdownStream`] performs an update
+/// immediately. Call [`MarkdownStream::throttle`] to coalesce generated content
+/// without changing the builder lifecycle.
 #[derive(Debug)]
 pub struct MarkdownStreamBuilder<'a, T> {
     sender: &'a MessageSender<T>,

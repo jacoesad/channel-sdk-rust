@@ -37,5 +37,5 @@ pub use message::{
     MarkdownStream, MarkdownStreamBuilder, MessageBuilder, MessageChatType, MessageContent,
     MessageId, MessageMention, MessageReplyBuilder, MessageSender, MessageSenderInfo,
     MessageSenderOptions, MessageSenderType, NormalizedMessage, PostContent, PostContentBuilder,
-    PostDocument, PostElement, PostStyle, Recipient,
+    PostDocument, PostElement, PostStyle, Recipient, ThrottledMarkdownStream,
 };

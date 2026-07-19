@@ -158,11 +158,13 @@ export LARK_STREAM_TEXT=$'## Result\n\nStreaming output from lark-channel.'
 cargo run --example markdown_stream
 ```
 
-`LARK_STREAM_TEXT` must be non-empty. `LARK_STREAM_CHUNK_CHARS` controls the Unicode character count per update and defaults to `12`. `LARK_STREAM_INTERVAL_MS` defaults to `150` and must be at least `100`, keeping this example within the platform guide's conservative per-card limit of 10 updates per second. `LARK_UUID` controls the message or reply idempotency key, and `LARK_MAX_ATTEMPTS` controls transport attempts.
+`LARK_STREAM_TEXT` must be non-empty. `LARK_STREAM_CHUNK_CHARS` controls the Unicode character count per generated token batch and defaults to `12`. `LARK_STREAM_CHUNK_DELAY_MS` simulates the delay between batches and defaults to `25`. `LARK_STREAM_INTERVAL_MS` configures the automatic content-update throttle, defaults to `150`, and must be at least `150` so the example leaves headroom under the platform's per-card operation guidance for its final tail and settings updates. `LARK_UUID` controls the message or reply idempotency key, and `LARK_MAX_ATTEMPTS` controls transport attempts.
 
 Target variables use this precedence: `LARK_MESSAGE_ID`, then `LARK_CHAT_ID`, then `LARK_OPEN_ID`. Unset stale variables when changing between reply, chat, and direct-user tests.
 
-The helper sends each `append` or `set_content` immediately; it does not yet throttle application-provided update rates automatically. The example therefore configures one internal attempt and performs any transport retries itself, preserving the same builder or pending stream operation and waiting `LARK_STREAM_INTERVAL_MS` between requests. Because this example knows the complete output before starting, it calls `MarkdownStreamBuilder::preflight_content` before any remote operation to check both the active and closed CardKit states against the 100,000-character element limit and 30 KiB whole-card limit. Automatic buffering/throttling and continuation across oversized output remain separate Milestone 5 work.
+The example wraps the active `MarkdownStream` with `throttle`. The first generated content is sent immediately, while later batches arriving inside `LARK_STREAM_INTERVAL_MS` are coalesced into one complete snapshot. Content calls drive due updates; the wrapper creates no background timer. Applications whose producer can pause should schedule `flush` using `next_flush_in`, and `finish` always flushes the final buffered tail. Explicit `flush` and `finish` calls bypass the content interval, so applications that require a strict aggregate operation budget must pace those calls too. The example configures one internal attempt and performs recoverable transport retries itself, preserving pending sequence and UUID state.
+
+Because this example knows the complete output before starting, it calls `MarkdownStreamBuilder::preflight_content` before any remote operation to check both the active and closed CardKit states against the 100,000-character element limit and 30 KiB whole-card limit. Continuation across oversized output remains separate Milestone 5 work.
 
 ## WebSocket endpoint and connection
 
