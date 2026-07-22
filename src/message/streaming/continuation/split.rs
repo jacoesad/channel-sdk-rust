@@ -149,7 +149,7 @@ fn largest_fitting_boundary(
 }
 
 fn page_fits(source: &str, profile: &MarkdownStreamCardProfile, max_page_chars: usize) -> bool {
-    source.chars().count() <= max_page_chars
+    source.chars().nth(max_page_chars).is_none()
         && validate_stream_content_states(source, profile).is_ok()
 }
 

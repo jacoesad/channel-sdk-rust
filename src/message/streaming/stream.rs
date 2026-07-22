@@ -669,6 +669,50 @@ mod tests {
     }
 
     #[test]
+    fn response_decoding_errors_retain_content_and_finish_operations() {
+        let transport = FakeTransport::new(vec![
+            Ok(token_response()),
+            Ok(card_response("7355372766134157324")),
+            Ok(message_response("om_serde_error")),
+            Err(response_decoding_error()),
+            Ok(ok_response()),
+            Err(response_decoding_error()),
+            Ok(ok_response()),
+        ]);
+        let client = crate::lark_openapi::OpenApiClient::new(
+            ChannelConfig::new("cli_a", "secret"),
+            transport.clone(),
+        );
+        let sender = MessageSender::new(client);
+        let mut stream = block_on(
+            sender
+                .markdown_stream_message(Recipient::Chat("oc_123".to_owned()))
+                .max_attempts(1)
+                .start(),
+        )
+        .expect("started stream");
+
+        let error = block_on(stream.set_content("done")).expect_err("ambiguous content response");
+        assert!(matches!(error, Error::Serde(_)));
+        assert!(stream.has_pending_operation());
+        block_on(stream.retry_pending()).expect("replayed content update");
+
+        let error = block_on(stream.finish()).expect_err("ambiguous finish response");
+        assert!(matches!(error, Error::Serde(_)));
+        assert!(stream.has_pending_operation());
+        block_on(stream.retry_pending()).expect("replayed finish");
+        assert!(stream.is_finished());
+
+        let calls = transport.calls();
+        assert_eq!(calls[3].body["sequence"], calls[4].body["sequence"]);
+        assert_eq!(calls[3].body["uuid"], calls[4].body["uuid"]);
+        assert_eq!(calls[3].body["content"], calls[4].body["content"]);
+        assert_eq!(calls[5].body["sequence"], calls[6].body["sequence"]);
+        assert_eq!(calls[5].body["uuid"], calls[6].body["uuid"]);
+        assert_eq!(calls[5].body["settings"], calls[6].body["settings"]);
+    }
+
+    #[test]
     fn oversized_updates_fail_without_advancing_sequence_or_content() {
         let transport = FakeTransport::http(vec![
             token_response(),
@@ -694,5 +738,11 @@ mod tests {
         assert_eq!(transport.calls().len(), 3);
         assert_eq!(stream.content(), None);
         assert_eq!(stream.next_sequence(), 1);
+    }
+
+    fn response_decoding_error() -> Error {
+        serde_json::from_str::<Value>("{")
+            .expect_err("invalid JSON")
+            .into()
     }
 }

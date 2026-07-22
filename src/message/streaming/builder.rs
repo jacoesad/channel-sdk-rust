@@ -189,9 +189,10 @@ where
     /// Returns the prepared CardKit entity after the first successful create.
     ///
     /// When message delivery has an ambiguous transport, HTTP-status, or
-    /// response-decoding outcome, keep this builder and call [`Self::start`]
-    /// again. The retry reuses this card and the original message idempotency
-    /// key instead of creating another entity.
+    /// response-decoding outcome, keep this builder and retry with the same
+    /// entrypoint: [`Self::start`] or [`Self::start_continuing`]. The retry
+    /// reuses this card and the original message idempotency key instead of
+    /// creating another entity.
     pub fn prepared_card_id(&self) -> Option<&CardId> {
         self.prepared.as_ref().map(|prepared| &prepared.card_id)
     }
@@ -320,6 +321,8 @@ where
     /// Markdown while exposing every created card and message through its page
     /// list. It prefers natural text boundaries but otherwise treats Markdown
     /// as plain source: constructs may span pages and are not rewritten.
+    /// If initial message delivery has an ambiguous outcome, call this method
+    /// again on the same mutable builder to preserve continuation behavior.
     pub async fn start_continuing(&mut self) -> Result<ContinuingMarkdownStream<'a, T>> {
         validate_continuation_limit(self.continuation_max_page_chars)?;
         let template = self.continuation_template();
@@ -465,6 +468,26 @@ mod tests {
     }
 
     #[test]
+    fn response_decoding_during_card_creation_cannot_be_retried() {
+        let transport =
+            FakeTransport::new(vec![Ok(token_response()), Err(response_decoding_error())]);
+        let client = crate::lark_openapi::OpenApiClient::new(
+            ChannelConfig::new("cli_a", "secret"),
+            transport.clone(),
+        );
+        let sender = MessageSender::new(client);
+        let mut builder = sender
+            .markdown_stream_message(Recipient::Chat("oc_123".to_owned()))
+            .max_attempts(1);
+
+        let error = block_on(builder.start()).expect_err("decoding outcome is ambiguous");
+        assert!(matches!(error, Error::Serde(_)));
+        let error = block_on(builder.start()).expect_err("ambiguous create cannot be repeated");
+        assert!(matches!(error, Error::Validation(message) if message.contains("unknown outcome")));
+        assert_eq!(transport.calls().len(), 2);
+    }
+
+    #[test]
     fn cancelled_token_request_remains_retryable_before_card_creation() {
         let transport = FakeTransport::scripted(vec![
             FakeResponse::pending_once(token_response()),
@@ -553,6 +576,38 @@ mod tests {
 
         let error = block_on(builder.start()).expect_err("builder starts only once");
         assert!(matches!(error, Error::Validation(_)));
+    }
+
+    #[test]
+    fn start_continuing_reuses_prepared_card_after_delivery_decoding_error() {
+        let transport = FakeTransport::new(vec![
+            Ok(token_response()),
+            Ok(card_response("7355372766134157319")),
+            Err(response_decoding_error()),
+            Ok(message_response("om_continuing_recovered")),
+        ]);
+        let client = crate::lark_openapi::OpenApiClient::new(
+            ChannelConfig::new("cli_a", "secret"),
+            transport.clone(),
+        );
+        let sender = MessageSender::new(client);
+        let mut builder = sender
+            .markdown_stream_message(Recipient::Chat("oc_123".to_owned()))
+            .uuid("stream-continuing-1")
+            .max_attempts(1);
+
+        let error = block_on(builder.start_continuing()).expect_err("ambiguous delivery failure");
+        assert!(matches!(error, Error::Serde(_)));
+        let stream = block_on(builder.start_continuing()).expect("recovered continuing stream");
+
+        assert_eq!(stream.pages().len(), 1);
+        assert_eq!(stream.current_card_id().as_str(), "7355372766134157319");
+        assert_eq!(stream.current_message_id().0, "om_continuing_recovered");
+        let calls = transport.calls();
+        assert_eq!(calls.len(), 4);
+        assert_eq!(calls[2].body["uuid"], "stream-continuing-1");
+        assert_eq!(calls[3].body["uuid"], "stream-continuing-1");
+        assert_eq!(calls[2].body["content"], calls[3].body["content"]);
     }
 
     #[test]
@@ -663,5 +718,11 @@ mod tests {
             .expect_err("whole card byte limit");
         assert!(matches!(error, Error::Validation(_)));
         assert!(transport.calls().is_empty());
+    }
+
+    fn response_decoding_error() -> Error {
+        serde_json::from_str::<serde_json::Value>("{")
+            .expect_err("invalid JSON")
+            .into()
     }
 }
