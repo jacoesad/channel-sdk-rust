@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+use crate::card::MAX_CARD_JSON_BYTES;
 use crate::{Error, Result};
 
 use super::super::{MarkdownStreamCardProfile, validate_stream_content_states};
@@ -30,6 +31,9 @@ pub(super) fn plan_content(
 ) -> Result<VecDeque<PlannedPage>> {
     debug_assert!(!source.is_empty());
 
+    // Every source character occupies at least one byte in serialized JSON, so
+    // the card byte limit is also a conservative upper bound for page characters.
+    let max_page_chars = max_page_chars.min(MAX_CARD_JSON_BYTES);
     let mut pages = VecDeque::new();
     let mut remaining = source;
     let mut minimum_source_bytes = minimum_first_page_source_bytes;
@@ -237,6 +241,22 @@ mod tests {
                 .iter()
                 .all(|page| { validate_stream_content_states(&page.content, &profile).is_ok() })
         );
+    }
+
+    #[test]
+    fn platform_hard_limit_bounds_an_unrestricted_soft_limit() {
+        let profile = MarkdownStreamCardProfile::default();
+        let source = "x".repeat(crate::card::MAX_CARD_ELEMENT_CONTENT_CHARS + 1);
+
+        let pages = plan_content(&source, &profile, usize::MAX, 0)
+            .expect("platform limits bound an unrestricted soft limit");
+
+        assert!(pages.len() > 1);
+        assert_eq!(reconstructed_source(&pages), source);
+        assert!(pages.iter().all(|page| {
+            page.content.chars().count() <= MAX_CARD_JSON_BYTES
+                && validate_stream_content_states(&page.content, &profile).is_ok()
+        }));
     }
 
     #[test]
