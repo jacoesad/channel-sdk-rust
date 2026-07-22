@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde_json::{Value, json};
 
 use super::test_support::{FakeTransport, block_on};
@@ -164,6 +166,20 @@ fn post_tenant_json_adds_bearer_token() {
         calls[1].headers.get("content-type").map(String::as_str),
         Some("application/json")
     );
+}
+
+#[test]
+fn tenant_json_serializes_the_request_before_authentication() {
+    let transport = FakeTransport::new(vec![]);
+    let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+    let invalid_json_map = BTreeMap::from([((1_u8, 2_u8), 3_u8)]);
+
+    let error =
+        block_on(client.post_tenant_json::<_, Value>("/open-apis/example", &invalid_json_map))
+            .expect_err("non-string JSON map keys are rejected locally");
+
+    assert!(matches!(error, Error::Serde(_)));
+    assert!(transport.calls().is_empty());
 }
 
 #[test]

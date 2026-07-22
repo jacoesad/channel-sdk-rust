@@ -34,8 +34,9 @@ pub use event::{
 };
 pub use media::{ResourceDescriptor, ResourceType};
 pub use message::{
-    MarkdownStream, MarkdownStreamBuilder, MessageBuilder, MessageChatType, MessageContent,
-    MessageId, MessageMention, MessageReplyBuilder, MessageSender, MessageSenderInfo,
-    MessageSenderOptions, MessageSenderType, NormalizedMessage, PostContent, PostContentBuilder,
-    PostDocument, PostElement, PostStyle, Recipient, ThrottledMarkdownStream,
+    ContinuingMarkdownStream, MarkdownStream, MarkdownStreamBuilder, MarkdownStreamPage,
+    MessageBuilder, MessageChatType, MessageContent, MessageId, MessageMention,
+    MessageReplyBuilder, MessageSender, MessageSenderInfo, MessageSenderOptions, MessageSenderType,
+    NormalizedMessage, PostContent, PostContentBuilder, PostDocument, PostElement, PostStyle,
+    Recipient, ThrottledMarkdownStream,
 };

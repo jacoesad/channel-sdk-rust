@@ -74,6 +74,14 @@ where
         self.min_update_interval
     }
 
+    pub(super) fn set_min_update_interval(&mut self, min_update_interval: Duration) {
+        self.min_update_interval = min_update_interval;
+    }
+
+    pub(super) fn has_pending_finish(&self) -> bool {
+        self.stream.has_pending_finish()
+    }
+
     /// Returns the sequence that will be used by the next CardKit operation.
     pub fn next_sequence(&self) -> u32 {
         self.stream.next_sequence()
@@ -84,7 +92,7 @@ where
         self.stream.is_finished()
     }
 
-    /// Returns whether a transport failure retained an operation for replay.
+    /// Returns whether an ambiguous remote failure retained an operation for replay.
     pub fn has_pending_operation(&self) -> bool {
         self.stream.has_pending_operation()
     }

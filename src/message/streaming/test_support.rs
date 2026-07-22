@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
@@ -60,7 +61,7 @@ impl FakeTransport {
     pub(super) fn new(responses: Vec<Result<HttpResponse>>) -> Self {
         Self {
             state: Arc::new(Mutex::new(FakeState {
-                responses: responses.into(),
+                responses: responses.into_iter().map(FakeResponse::from).collect(),
                 calls: Vec::new(),
             })),
         }
@@ -68,6 +69,15 @@ impl FakeTransport {
 
     pub(super) fn http(responses: Vec<HttpResponse>) -> Self {
         Self::new(responses.into_iter().map(Ok).collect())
+    }
+
+    pub(super) fn scripted(responses: Vec<FakeResponse>) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(FakeState {
+                responses: responses.into(),
+                calls: Vec::new(),
+            })),
+        }
     }
 
     pub(super) fn calls(&self) -> Vec<FakeCall> {
@@ -92,14 +102,63 @@ impl OpenApiTransport for FakeTransport {
             state.responses.pop_front().expect("fake response")
         };
 
-        Box::pin(async move { response })
+        match response {
+            FakeResponse::Ready(response) => Box::pin(async move { response }),
+            FakeResponse::PendingOnce(response) => Box::pin(PendingOnceResponse {
+                response: Some(response),
+                polled: false,
+            }),
+        }
     }
 }
 
 #[derive(Debug)]
 struct FakeState {
-    responses: VecDeque<Result<HttpResponse>>,
+    responses: VecDeque<FakeResponse>,
     calls: Vec<FakeCall>,
+}
+
+#[derive(Debug)]
+pub(super) enum FakeResponse {
+    Ready(Result<HttpResponse>),
+    PendingOnce(Result<HttpResponse>),
+}
+
+impl FakeResponse {
+    pub(super) fn ready(response: HttpResponse) -> Self {
+        Self::Ready(Ok(response))
+    }
+
+    pub(super) fn pending_once(response: HttpResponse) -> Self {
+        Self::PendingOnce(Ok(response))
+    }
+}
+
+impl From<Result<HttpResponse>> for FakeResponse {
+    fn from(response: Result<HttpResponse>) -> Self {
+        Self::Ready(response)
+    }
+}
+
+struct PendingOnceResponse {
+    response: Option<Result<HttpResponse>>,
+    polled: bool,
+}
+
+impl Future for PendingOnceResponse {
+    type Output = Result<HttpResponse>;
+
+    fn poll(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
+        if !self.polled {
+            self.polled = true;
+            return Poll::Pending;
+        }
+        Poll::Ready(
+            self.response
+                .take()
+                .expect("pending response consumed once"),
+        )
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -123,6 +182,17 @@ where
         Poll::Ready(output) => output,
         Poll::Pending => panic!("test future unexpectedly pending"),
     }
+}
+
+pub(super) fn assert_pending_once<F>(future: F)
+where
+    F: Future,
+{
+    let waker = noop_waker();
+    let mut context = Context::from_waker(&waker);
+    let mut future = Box::pin(future);
+
+    assert!(matches!(future.as_mut().poll(&mut context), Poll::Pending));
 }
 
 fn noop_waker() -> Waker {

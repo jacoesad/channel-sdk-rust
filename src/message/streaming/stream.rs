@@ -92,8 +92,8 @@ where
         self.finished
     }
 
-    /// Returns whether a transport failure left one operation awaiting an
-    /// idempotent replay.
+    /// Returns whether an ambiguous remote failure left one operation awaiting
+    /// an idempotent replay.
     pub fn has_pending_operation(&self) -> bool {
         self.pending.is_some()
     }
@@ -130,10 +130,12 @@ where
         self.update_content(content.into()).await
     }
 
-    /// Retries the operation retained after an ambiguous transport failure.
+    /// Retries the operation retained after an ambiguous remote failure.
     ///
-    /// The original payload, sequence, and UUID are reused. API, validation,
-    /// and HTTP status errors are definitive and clear the retained operation.
+    /// The original payload, sequence, and UUID are reused. Validation and API
+    /// errors are definitive and clear the retained operation. Transport, HTTP
+    /// status, and response-decoding failures preserve the operation because
+    /// the remote update may already have been applied.
     pub async fn retry_pending(&mut self) -> Result<()> {
         let Some(operation) = self.pending.clone() else {
             return Ok(());
@@ -166,7 +168,7 @@ where
         };
 
         if let Err(error) = result {
-            if !matches!(error, Error::Transport(_)) {
+            if !operation_outcome_may_be_ambiguous(&error) {
                 self.pending = None;
             }
             return Err(error);
@@ -270,6 +272,13 @@ where
             _ => None,
         }
     }
+}
+
+fn operation_outcome_may_be_ambiguous(error: &Error) -> bool {
+    matches!(
+        error,
+        Error::Transport(_) | Error::HttpStatus { .. } | Error::Serde(_)
+    )
 }
 
 #[cfg(test)]
@@ -556,6 +565,41 @@ mod tests {
     }
 
     #[test]
+    fn http_status_during_finish_retains_the_original_operation() {
+        let transport = FakeTransport::http(vec![
+            token_response(),
+            card_response("7355372766134157323"),
+            message_response("om_http_finish"),
+            ok_response(),
+            HttpResponse::json(503, Value::Null),
+            ok_response(),
+        ]);
+        let client = crate::lark_openapi::OpenApiClient::new(
+            ChannelConfig::new("cli_a", "secret"),
+            transport.clone(),
+        );
+        let sender = MessageSender::new(client);
+        let mut stream = block_on(
+            sender
+                .markdown_stream_message(Recipient::Chat("oc_123".to_owned()))
+                .start(),
+        )
+        .expect("started stream");
+        block_on(stream.set_content("done")).expect("content update");
+
+        let error = block_on(stream.finish()).expect_err("ambiguous HTTP finish failure");
+        assert!(matches!(error, Error::HttpStatus { status: 503 }));
+        assert!(stream.has_pending_operation());
+
+        block_on(stream.finish()).expect("replayed finish");
+        assert!(stream.is_finished());
+        let calls = transport.calls();
+        assert_eq!(calls[4].body["sequence"], calls[5].body["sequence"]);
+        assert_eq!(calls[4].body["uuid"], calls[5].body["uuid"]);
+        assert_eq!(calls[4].body["settings"], calls[5].body["settings"]);
+    }
+
+    #[test]
     fn api_errors_do_not_retry_or_advance_local_state() {
         let transport = FakeTransport::http(vec![
             token_response(),
@@ -585,12 +629,13 @@ mod tests {
     }
 
     #[test]
-    fn http_status_errors_clear_pending_operations() {
+    fn http_status_errors_retain_pending_operations_for_explicit_replay() {
         let transport = FakeTransport::http(vec![
             token_response(),
             card_response("7355372766134157322"),
             message_response("om_http_error"),
             HttpResponse::json(503, Value::Null),
+            ok_response(),
         ]);
         let client = crate::lark_openapi::OpenApiClient::new(
             ChannelConfig::new("cli_a", "secret"),
@@ -610,7 +655,17 @@ mod tests {
         assert_eq!(transport.calls().len(), 4);
         assert_eq!(stream.content(), None);
         assert_eq!(stream.next_sequence(), 1);
+        assert!(stream.has_pending_operation());
+
+        block_on(stream.retry_pending()).expect("replayed content update");
+        assert_eq!(stream.content(), Some("hello"));
+        assert_eq!(stream.next_sequence(), 2);
         assert!(!stream.has_pending_operation());
+
+        let calls = transport.calls();
+        assert_eq!(calls[3].body["sequence"], calls[4].body["sequence"]);
+        assert_eq!(calls[3].body["uuid"], calls[4].body["uuid"]);
+        assert_eq!(calls[3].body["content"], calls[4].body["content"]);
     }
 
     #[test]

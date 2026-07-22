@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use lark_channel::lark_openapi::{OpenApiClient, ReqwestOpenApiTransport};
 use lark_channel::{
-    ChannelConfig, Error, MarkdownStream, MarkdownStreamBuilder, MessageId, MessageSender,
-    Recipient, ThrottledMarkdownStream,
+    ChannelConfig, ContinuingMarkdownStream, Error, MarkdownStreamBuilder, MessageId,
+    MessageSender, Recipient,
 };
 
 const DEFAULT_TEXT: &str =
@@ -15,6 +15,7 @@ const DEFAULT_INTERVAL_MS: u64 = 150;
 const DEFAULT_CHUNK_DELAY_MS: u64 = 25;
 const MIN_INTERVAL_MS: u64 = 150;
 const DEFAULT_MAX_ATTEMPTS: usize = 3;
+const DEFAULT_CONTINUATION_MAX_PAGE_CHARS: usize = 30_000;
 
 #[derive(Debug, PartialEq, Eq)]
 enum StreamTarget {
@@ -53,12 +54,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_attempts = optional_usize("LARK_MAX_ATTEMPTS")?
         .unwrap_or(DEFAULT_MAX_ATTEMPTS)
         .max(1);
-    builder = builder.max_attempts(1);
+    let max_page_chars = optional_usize("LARK_CONTINUATION_MAX_PAGE_CHARS")?
+        .unwrap_or(DEFAULT_CONTINUATION_MAX_PAGE_CHARS);
+    builder = builder
+        .max_attempts(1)
+        .continuation_max_page_chars(max_page_chars);
 
     let content = validate_stream_text(
         env::var("LARK_STREAM_TEXT").unwrap_or_else(|_| DEFAULT_TEXT.to_owned()),
     )?;
-    builder.preflight_content(&content)?;
     let chunk_chars = optional_usize("LARK_STREAM_CHUNK_CHARS")?
         .unwrap_or(DEFAULT_CHUNK_CHARS)
         .max(1);
@@ -104,9 +108,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!(
-        "markdown stream completed: card_id={}, message_id={}",
-        stream.card_id().as_str(),
-        stream.message_id().0
+        "markdown stream completed: pages={}, first_message_id={}, current_message_id={}",
+        stream.pages().len(),
+        stream.first_message_id().0,
+        stream.current_message_id().0
     );
     Ok(())
 }
@@ -115,14 +120,16 @@ async fn start_with_retry<'a>(
     builder: &mut MarkdownStreamBuilder<'a, ReqwestOpenApiTransport>,
     max_attempts: usize,
     interval: Duration,
-) -> lark_channel::Result<MarkdownStream<'a, ReqwestOpenApiTransport>> {
+) -> lark_channel::Result<ContinuingMarkdownStream<'a, ReqwestOpenApiTransport>> {
     let mut attempt = 0;
     loop {
         attempt += 1;
-        match builder.start().await {
+        match builder.start_continuing().await {
             Ok(stream) => return Ok(stream),
-            Err(Error::Transport(_))
-                if attempt < max_attempts && builder.prepared_card_id().is_some() =>
+            Err(error)
+                if attempt < max_attempts
+                    && builder.prepared_card_id().is_some()
+                    && operation_outcome_may_be_ambiguous(&error) =>
             {
                 tokio::time::sleep(interval).await;
             }
@@ -132,7 +139,7 @@ async fn start_with_retry<'a>(
 }
 
 async fn append_with_retry(
-    stream: &mut ThrottledMarkdownStream<'_, ReqwestOpenApiTransport>,
+    stream: &mut ContinuingMarkdownStream<'_, ReqwestOpenApiTransport>,
     chunk: &str,
     max_attempts: usize,
     interval: Duration,
@@ -143,11 +150,15 @@ async fn append_with_retry(
         let result = if attempt == 1 {
             stream.append(chunk).await
         } else {
-            stream.flush().await
+            stream.retry_pending().await
         };
         match result {
             Ok(()) => return Ok(()),
-            Err(Error::Transport(_)) if attempt < max_attempts => {
+            Err(error)
+                if attempt < max_attempts
+                    && stream.has_pending_operation()
+                    && operation_outcome_may_be_ambiguous(&error) =>
+            {
                 tokio::time::sleep(interval).await;
             }
             Err(error) => return Err(error),
@@ -156,16 +167,25 @@ async fn append_with_retry(
 }
 
 async fn finish_with_retry(
-    stream: &mut ThrottledMarkdownStream<'_, ReqwestOpenApiTransport>,
+    stream: &mut ContinuingMarkdownStream<'_, ReqwestOpenApiTransport>,
     max_attempts: usize,
     interval: Duration,
 ) -> lark_channel::Result<()> {
     let mut attempt = 0;
     loop {
         attempt += 1;
-        match stream.finish().await {
+        let result = if attempt == 1 {
+            stream.finish().await
+        } else {
+            stream.retry_pending().await
+        };
+        match result {
             Ok(()) => return Ok(()),
-            Err(Error::Transport(_)) if attempt < max_attempts => {
+            Err(error)
+                if attempt < max_attempts
+                    && stream.has_pending_operation()
+                    && operation_outcome_may_be_ambiguous(&error) =>
+            {
                 tokio::time::sleep(interval).await;
             }
             Err(error) => return Err(error),
@@ -173,13 +193,21 @@ async fn finish_with_retry(
     }
 }
 
-fn report_stream_failure(stream: &ThrottledMarkdownStream<'_, ReqwestOpenApiTransport>) {
+fn operation_outcome_may_be_ambiguous(error: &Error) -> bool {
+    matches!(
+        error,
+        Error::Transport(_) | Error::HttpStatus { .. } | Error::Serde(_)
+    )
+}
+
+fn report_stream_failure(stream: &ContinuingMarkdownStream<'_, ReqwestOpenApiTransport>) {
     eprintln!(
-        "stream update failed: card_id={}, message_id={}, pending={}, buffered={}",
-        stream.card_id().as_str(),
-        stream.message_id().0,
+        "stream update failed: card_id={}, message_id={}, pages={}, pending={}, recovery_blocked={}",
+        stream.current_card_id().as_str(),
+        stream.current_message_id().0,
+        stream.pages().len(),
         stream.has_pending_operation(),
-        stream.has_buffered_content()
+        stream.is_recovery_blocked(),
     );
 }
 

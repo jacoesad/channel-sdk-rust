@@ -6,7 +6,7 @@ use crate::message::MessageId;
 use crate::{Error, Result};
 
 use super::message::validate_message_id;
-use super::{OpenApiClient, OpenApiTransport};
+use super::{HttpMethod, HttpRequest, OpenApiClient, OpenApiTransport, parse_openapi_response};
 
 const CARD_ENTITY_PATH: &str = "/open-apis/cardkit/v1/cards";
 const CALLBACK_CARD_UPDATE_PATH: &str = "/open-apis/interactive/v1/card/update";
@@ -62,10 +62,24 @@ where
     /// message. It is the required starting point for later element-level or
     /// streaming CardKit updates.
     pub async fn create_card_entity(&self, card: &Card) -> Result<CardId> {
+        let request = self.prepare_card_entity_create(card)?;
+        let token = self.tenant_access_token().await?;
+        self.send_prepared_card_entity_create(request.with_bearer_auth(token))
+            .await
+    }
+
+    pub(crate) fn prepare_card_entity_create(&self, card: &Card) -> Result<HttpRequest> {
         card.validate()?;
-        let request = CardEntityPayload::from_card(card)?;
-        let response: CreateCardEntityResponse =
-            self.post_tenant_json(CARD_ENTITY_PATH, &request).await?;
+        let payload = CardEntityPayload::from_card(card)?;
+        self.json_request(HttpMethod::Post, CARD_ENTITY_PATH, &payload)
+    }
+
+    pub(crate) async fn send_prepared_card_entity_create(
+        &self,
+        request: HttpRequest,
+    ) -> Result<CardId> {
+        let response = self.transport.send_json(request).await?;
+        let response: CreateCardEntityResponse = parse_openapi_response(response)?;
         CardId::new(response.data.card_id)
     }
 

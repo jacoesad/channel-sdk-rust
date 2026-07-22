@@ -84,7 +84,7 @@ The loop sends the official application-level heartbeat ping at the endpoint-pro
 
 Lower-level raw message entry points are available under `lark_channel::lark_openapi` for callers that need to pass `MessageContent` directly. See [lark-api.md](lark-api.md) for the exact official API mappings.
 
-Media upload, long-content continuation, and richer retry policies are planned follow-up work. The low-level CardKit streaming calls are documented in [lark-api.md](lark-api.md).
+Media upload and richer retry policies are planned follow-up work. The low-level CardKit streaming calls are documented in [lark-api.md](lark-api.md).
 
 Runnable examples are documented in [../examples/README.md](../examples/README.md), including low-level create/reply calls and the high-level `MessageSender` flow.
 
@@ -203,11 +203,28 @@ stream.finish().await?;
 
 For token-oriented producers, consume the active stream with `MarkdownStream::throttle`. The resulting `ThrottledMarkdownStream` sends the first content immediately and coalesces later snapshots until the configured interval elapses. Content calls drive due updates; the wrapper does not create a background task or depend on a particular async runtime. If a producer can pause while content remains buffered, use `next_flush_in` with the application's timer and then call `flush`, or call `flush` directly to bypass the interval. `finish` also bypasses the interval so it can flush the latest tail before closing streaming mode. `content` returns the latest logical content, `flushed_content` returns the acknowledged content, and `has_buffered_content` distinguishes them.
 
-The platform currently limits card operations on one entity to 10 updates per second. The throttle interval covers automatic content updates only; explicit `flush` and `finish` operations are not delayed. Applications that require a hard aggregate limit must schedule those operations too. The runnable example uses at least 150 milliseconds between automatic content updates to leave room for its final tail and settings operations, while the SDK accepts other intervals for caller-owned policies and deterministic tests. Content and finish validation still enforce the 100,000-character streaming field limit and the separate 30 KiB whole-card limit before an update, so oversized output must be continued in another message by application code until the planned continuation helper is available. When complete output is already known, `MarkdownStreamBuilder::preflight_content` checks both limits before card creation or delivery; the runnable example uses this path before `start`.
+The platform currently limits card operations on one entity to 10 updates per second. The throttle interval covers automatic content updates only; explicit `flush` and `finish` operations are not delayed. Applications that require a hard aggregate limit must schedule those operations too. The runnable example uses at least 150 milliseconds between automatic content updates to leave room for its final tail and settings operations, while the SDK accepts other intervals for caller-owned policies and deterministic tests. Content and finish validation enforce the 100,000-character streaming field limit and the separate 30 KiB whole-card limit before an update. When complete single-card output is already known, `MarkdownStreamBuilder::preflight_content` checks both limits before card creation or delivery.
 
-`start` does not retry CardKit entity creation because that endpoint has no idempotency key. If the creation response itself is lost, the resulting `CardId` cannot be recovered and creating again may allocate another unsent entity. After entity creation is acknowledged, the builder keeps the prepared `CardId`, target, delivery options, and message UUID until message delivery is acknowledged. If delivery returns a transport error, retain the same mutable builder and call `start` again; `prepared_card_id` reports whether creation reached that reusable prepared state.
+Call `MarkdownStreamBuilder::start_continuing` when generated output may exceed one card. It returns `ContinuingMarkdownStream`, which keeps accepted source append-only, closes full cards, sends follow-up card-reference messages, and retains replayable ambiguous update, finish, or delivery operations for `retry_pending`. Card entity creation is non-idempotent: an unknown initial creation outcome prevents the builder from starting a stream, while an unknown follow-up creation outcome makes `is_recovery_blocked` return true. Retry then returns a validation error rather than risking a duplicate entity; `has_pending_operation` is false and `next_flush_in` returns `None`. Each page owns an independent CardKit sequence and idempotency lifecycle, while `pages` exposes every acknowledged `CardId` and `MessageId` in order.
 
-For content and finish operations, internal transport retries reuse the same payload, sequence, and UUID. If every attempt ends in a transport error, `MarkdownStream` retains that exact operation and reports it through `has_pending_operation`. Call `retry_pending`, or repeat the same content operation, before changing content. `ThrottledMarkdownStream` replays retained content before sending any newer buffered snapshot; `flush` and `finish` preserve that ordering. A definitive API, validation, serialization, or HTTP status error clears pending state without advancing acknowledged content or sequence. Dropping an unfinished stream cannot perform asynchronous cleanup; the platform closes streaming mode after its timeout, but callers should normally call `finish` explicitly.
+```rust
+let mut stream = sender
+    .markdown_stream_message(Recipient::Chat("oc_xxx".to_owned()))
+    .continuation_max_page_chars(30_000)
+    .start_continuing()
+    .await?
+    .throttle(Duration::from_millis(150));
+
+stream.append("First chunk").await?;
+stream.append(" and a later chunk").await?;
+stream.finish().await?;
+```
+
+Continuation preserves the original UTF-8 source exactly and prefers paragraph, line, and whitespace boundaries. Pagination is format-agnostic: it never separates a UTF-8 character, but it may split any Markdown construct, line-ending pair, or other source sequence across pages. Content is not rewritten, and every page renders independently according to the current Lark/Feishu client.
+
+`start` does not retry CardKit entity creation because that endpoint has no idempotency key. If the creation response itself is lost, the resulting `CardId` cannot be recovered and creating again may allocate another unsent entity. After entity creation is acknowledged, the builder keeps the prepared `CardId`, target, delivery options, and message UUID until message delivery is acknowledged. If delivery has an ambiguous transport, non-success HTTP status, or response-decoding outcome, retain the same mutable builder and call `start` again; `prepared_card_id` reports whether creation reached that reusable prepared state.
+
+For content and finish operations, internal transport retries reuse the same payload, sequence, and UUID. If every attempt ends with an ambiguous transport, non-success HTTP status, or response-decoding failure, `MarkdownStream` retains that exact operation and reports it through `has_pending_operation`. Call `retry_pending`, or repeat the same content operation, before changing content. `ThrottledMarkdownStream` replays retained content before sending any newer buffered snapshot; `flush` and `finish` preserve that ordering. API rejection, validation, and request-preparation failures are definitive and clear pending state without advancing acknowledged content or sequence. Dropping an unfinished stream cannot perform asynchronous cleanup; the platform closes streaming mode after its timeout, but callers should normally call `finish` explicitly.
 
 To acknowledge a card action with immediate feedback:
 
