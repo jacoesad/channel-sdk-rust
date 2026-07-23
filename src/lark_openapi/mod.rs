@@ -110,10 +110,9 @@ where
         B: Serialize + ?Sized,
         R: DeserializeOwned,
     {
+        let request = self.json_request(method, path, body)?;
         let token = self.tenant_access_token().await?;
-        let request = self
-            .json_request(method, path, body)?
-            .with_bearer_auth(token);
+        let request = request.with_bearer_auth(token);
         let response = self.transport.send_json(request).await?;
         parse_openapi_response(response)
     }

@@ -141,7 +141,7 @@ cargo run --example card_streaming
 
 ## Stream Markdown with MessageSender
 
-`markdown_stream.rs` uses the high-level `MessageSender` lifecycle. It creates and sends one Markdown CardKit entity, accumulates chunk updates, owns sequence and idempotency values, and closes streaming mode when output finishes.
+`markdown_stream.rs` uses the high-level `MessageSender` lifecycle. It creates and sends Markdown CardKit entities, accumulates chunk updates, rolls oversized output onto follow-up messages, owns sequence and idempotency values, and closes streaming mode when output finishes.
 
 ```bash
 export LARK_APP_ID=cli_xxx
@@ -158,13 +158,13 @@ export LARK_STREAM_TEXT=$'## Result\n\nStreaming output from lark-channel.'
 cargo run --example markdown_stream
 ```
 
-`LARK_STREAM_TEXT` must be non-empty. `LARK_STREAM_CHUNK_CHARS` controls the Unicode character count per generated token batch and defaults to `12`. `LARK_STREAM_CHUNK_DELAY_MS` simulates the delay between batches and defaults to `25`. `LARK_STREAM_INTERVAL_MS` configures the automatic content-update throttle, defaults to `150`, and must be at least `150` so the example leaves headroom under the platform's per-card operation guidance for its final tail and settings updates. `LARK_UUID` controls the message or reply idempotency key, and `LARK_MAX_ATTEMPTS` controls transport attempts.
+`LARK_STREAM_TEXT` must be non-empty. `LARK_STREAM_CHUNK_CHARS` controls the Unicode character count per generated token batch and defaults to `12`. `LARK_STREAM_CHUNK_DELAY_MS` simulates the delay between batches and defaults to `25`. `LARK_STREAM_INTERVAL_MS` configures the automatic content-update throttle, defaults to `150`, and must be at least `150` so the example leaves headroom under the platform's per-card operation guidance for its final tail and settings updates. `LARK_CONTINUATION_MAX_PAGE_CHARS` sets the soft per-page Unicode character limit and defaults to `30000`; the SDK may split earlier to satisfy the serialized-card limit. `LARK_UUID` controls the first message or reply idempotency key, and `LARK_MAX_ATTEMPTS` controls transport attempts.
 
 Target variables use this precedence: `LARK_MESSAGE_ID`, then `LARK_CHAT_ID`, then `LARK_OPEN_ID`. Unset stale variables when changing between reply, chat, and direct-user tests.
 
-The example wraps the active `MarkdownStream` with `throttle`. The first generated content is sent immediately, while later batches arriving inside `LARK_STREAM_INTERVAL_MS` are coalesced into one complete snapshot. Content calls drive due updates; the wrapper creates no background timer. Applications whose producer can pause should schedule `flush` using `next_flush_in`, and `finish` always flushes the final buffered tail. Explicit `flush` and `finish` calls bypass the content interval, so applications that require a strict aggregate operation budget must pace those calls too. The example configures one internal attempt and performs recoverable transport retries itself, preserving pending sequence and UUID state.
+The example starts a `ContinuingMarkdownStream` and applies its throttle interval. The first generated content is sent immediately, while later batches arriving inside `LARK_STREAM_INTERVAL_MS` are coalesced into one complete snapshot. Content calls drive due updates; the controller creates no background timer. Applications whose producer can pause should schedule `flush` using `next_flush_in`, and `finish` always flushes the final buffered tail. Explicit `flush` and `finish` calls bypass the content interval, so applications that require a strict aggregate operation budget must pace those calls too. The example configures one internal attempt and retries replayable ambiguous transport, HTTP-status, and response-decoding outcomes itself, preserving pending sequence and UUID state.
 
-Because this example knows the complete output before starting, it calls `MarkdownStreamBuilder::preflight_content` before any remote operation to check both the active and closed CardKit states against the 100,000-character element limit and 30 KiB whole-card limit. Continuation across oversized output remains separate Milestone 5 work.
+Each continuation page is checked against both the 100,000-character element limit and 30 KiB whole-card limit before it is sent. The splitter prefers paragraph, line, and whitespace boundaries, never separates a UTF-8 character, and preserves the complete source text. It is intentionally format-agnostic: Markdown constructs and line-ending pairs may span pages, no syntax is rewritten, and each page renders independently.
 
 ## WebSocket endpoint and connection
 

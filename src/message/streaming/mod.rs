@@ -1,12 +1,14 @@
 //! High-level Markdown streaming through CardKit entities.
 
 mod builder;
+mod continuation;
 mod stream;
 #[cfg(test)]
 mod test_support;
 mod throttle;
 
 pub use builder::MarkdownStreamBuilder;
+pub use continuation::{ContinuingMarkdownStream, MarkdownStreamPage};
 pub use stream::MarkdownStream;
 pub use throttle::ThrottledMarkdownStream;
 
