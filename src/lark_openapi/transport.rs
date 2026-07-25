@@ -100,6 +100,68 @@ impl BinaryHttpResponse {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MultipartRequest {
+    pub method: HttpMethod,
+    pub url: Url,
+    pub headers: BTreeMap<String, String>,
+    pub parts: Vec<MultipartPart>,
+}
+
+impl MultipartRequest {
+    pub fn new(method: HttpMethod, url: Url) -> Self {
+        Self {
+            method,
+            url,
+            headers: BTreeMap::new(),
+            parts: Vec::new(),
+        }
+    }
+
+    pub fn with_bearer_auth(mut self, token: impl Into<String>) -> Self {
+        self.headers.insert(
+            "authorization".to_owned(),
+            format!("Bearer {}", token.into()),
+        );
+        self
+    }
+
+    pub fn text(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.parts.push(MultipartPart::Text {
+            name: name.into(),
+            value: value.into(),
+        });
+        self
+    }
+
+    pub fn file(
+        mut self,
+        name: impl Into<String>,
+        file_name: impl Into<String>,
+        bytes: Vec<u8>,
+    ) -> Self {
+        self.parts.push(MultipartPart::File {
+            name: name.into(),
+            file_name: file_name.into(),
+            bytes,
+        });
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MultipartPart {
+    Text {
+        name: String,
+        value: String,
+    },
+    File {
+        name: String,
+        file_name: String,
+        bytes: Vec<u8>,
+    },
+}
+
 pub trait OpenApiTransport: Clone + Send + Sync + 'static {
     fn send_json(&self, request: HttpRequest) -> BoxFuture<'static, Result<HttpResponse>>;
 }
@@ -118,6 +180,15 @@ pub trait OpenApiBinaryTransport: OpenApiTransport {
     ) -> BoxFuture<'static, Result<BinaryHttpResponse>>;
 }
 
+/// Optional transport capability for multipart OpenAPI requests.
+///
+/// This remains separate from [`OpenApiTransport`] so existing custom JSON
+/// transports do not need to implement media uploads.
+pub trait OpenApiMultipartTransport: OpenApiTransport {
+    fn send_multipart(&self, request: MultipartRequest)
+    -> BoxFuture<'static, Result<HttpResponse>>;
+}
+
 #[cfg(feature = "reqwest-transport")]
 #[derive(Debug, Clone)]
 pub struct ReqwestOpenApiTransport {
@@ -134,7 +205,7 @@ impl ReqwestOpenApiTransport {
         }
     }
 
-    /// Uses `client` for the existing JSON transport.
+    /// Uses `client` for JSON and multipart requests.
     ///
     /// Binary resource downloads use a dedicated client with redirects
     /// disabled so the original OpenAPI status cannot be replaced by a
@@ -241,6 +312,60 @@ impl OpenApiBinaryTransport for ReqwestOpenApiTransport {
 }
 
 #[cfg(feature = "reqwest-transport")]
+impl OpenApiMultipartTransport for ReqwestOpenApiTransport {
+    fn send_multipart(
+        &self,
+        request: MultipartRequest,
+    ) -> BoxFuture<'static, Result<HttpResponse>> {
+        let client = self.client.clone();
+
+        Box::pin(async move {
+            let MultipartRequest {
+                method,
+                url,
+                headers,
+                parts,
+            } = request;
+
+            let mut form = reqwest::multipart::Form::new();
+            for part in parts {
+                form = match part {
+                    MultipartPart::Text { name, value } => form.text(name, value),
+                    MultipartPart::File {
+                        name,
+                        file_name,
+                        bytes,
+                    } => form.part(
+                        name,
+                        reqwest::multipart::Part::bytes(bytes).file_name(file_name),
+                    ),
+                };
+            }
+
+            let mut builder = client.request(method.into(), url);
+            for (name, value) in headers {
+                builder = builder.header(name, value);
+            }
+            let response = builder
+                .multipart(form)
+                .send()
+                .await
+                .map_err(|error| Error::Transport(error.to_string()))?;
+            let status = response.status().as_u16();
+            if let Some(response) = response_for_error_status(status) {
+                return Ok(response);
+            }
+            let body = response
+                .json::<Value>()
+                .await
+                .map_err(|error| Error::Transport(error.to_string()))?;
+
+            Ok(HttpResponse { status, body })
+        })
+    }
+}
+
+#[cfg(feature = "reqwest-transport")]
 fn reqwest_request(client: &reqwest::Client, request: HttpRequest) -> reqwest::RequestBuilder {
     let HttpRequest {
         method,
@@ -308,8 +433,8 @@ fn binary_response_for_error_status(status: u16) -> Option<BinaryHttpResponse> {
 mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::thread;
 
     use serde_json::json;
@@ -367,7 +492,7 @@ mod tests {
             socket.write_all(&body).expect("write body");
         });
 
-        let response = ReqwestOpenApiTransport::new()
+        let response = ReqwestOpenApiTransport::with_client(reqwest::Client::new())
             .send_bytes(
                 HttpRequest::empty(
                     HttpMethod::Get,
@@ -386,6 +511,57 @@ mod tests {
             response.header("content-disposition"),
             Some("attachment; filename=\"image.png\"")
         );
+    }
+
+    #[tokio::test]
+    async fn reqwest_serializes_multipart_text_and_file_parts() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bound test server");
+        let address = listener.local_addr().expect("test server address");
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let server_capture = captured.clone();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().expect("accepted request");
+            let request = read_http_request(&mut socket);
+            *server_capture.lock().expect("capture state") = request;
+            let body = r#"{"code":0,"data":{"image_key":"img_123"}}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            socket
+                .write_all(response.as_bytes())
+                .expect("write response");
+        });
+
+        let response = ReqwestOpenApiTransport::new()
+            .send_multipart(
+                MultipartRequest::new(
+                    HttpMethod::Post,
+                    Url::parse(&format!("http://{address}/upload")).expect("test URL"),
+                )
+                .with_bearer_auth("tenant-token")
+                .text("image_type", "message")
+                .file("image", "image.png", b"png-data".to_vec()),
+            )
+            .await
+            .expect("multipart response");
+        server.join().expect("test server joined");
+
+        assert_eq!(response.status, 200);
+        assert_eq!(
+            response.body,
+            json!({"code": 0, "data": {"image_key": "img_123"}})
+        );
+
+        let request = captured.lock().expect("capture state");
+        let request = String::from_utf8_lossy(&request);
+        assert!(request.starts_with("POST /upload HTTP/1.1\r\n"));
+        assert!(request.contains("authorization: Bearer tenant-token\r\n"));
+        assert!(request.contains("content-type: multipart/form-data; boundary="));
+        assert!(request.contains("name=\"image_type\""));
+        assert!(request.contains("\r\n\r\nmessage\r\n"));
+        assert!(request.contains("name=\"image\"; filename=\"image.png\""));
+        assert!(request.contains("\r\n\r\npng-data\r\n"));
     }
 
     #[tokio::test]
@@ -582,5 +758,43 @@ mod tests {
             .expect("transport response");
         server.join().expect("test server joined");
         response
+    }
+
+    fn read_http_request(socket: &mut std::net::TcpStream) -> Vec<u8> {
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        let mut expected_length = None;
+
+        loop {
+            let read = socket.read(&mut buffer).expect("read request");
+            if read == 0 {
+                break;
+            }
+            request.extend_from_slice(&buffer[..read]);
+
+            if expected_length.is_none() {
+                if let Some(header_end) =
+                    request.windows(4).position(|window| window == b"\r\n\r\n")
+                {
+                    let headers = String::from_utf8_lossy(&request[..header_end]);
+                    let body_length = headers
+                        .lines()
+                        .find_map(|line| {
+                            line.split_once(':').and_then(|(name, value)| {
+                                name.eq_ignore_ascii_case("content-length")
+                                    .then(|| value.trim().parse::<usize>().expect("content length"))
+                            })
+                        })
+                        .unwrap_or(0);
+                    expected_length = Some(header_end + 4 + body_length);
+                }
+            }
+
+            if expected_length.is_some_and(|length| request.len() >= length) {
+                break;
+            }
+        }
+
+        request
     }
 }

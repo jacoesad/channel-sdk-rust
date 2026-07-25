@@ -2,7 +2,7 @@ use crate::media::DownloadedResource;
 use crate::validation::validate_path_identifier;
 use crate::{Error, Result};
 
-use super::{HttpMethod, HttpRequest, OpenApiBinaryTransport, OpenApiClient};
+use super::super::{HttpMethod, HttpRequest, OpenApiBinaryTransport, OpenApiClient};
 
 pub const MAX_MESSAGE_RESOURCE_BYTES: usize = 100_000_000;
 
