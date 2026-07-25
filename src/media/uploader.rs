@@ -16,12 +16,12 @@ pub enum MediaUpload {
         file_name: String,
         bytes: Vec<u8>,
     },
-    Audio {
+    OpusAudio {
         file_name: String,
         bytes: Vec<u8>,
         duration_ms: u64,
     },
-    Video {
+    Mp4Video {
         file_name: String,
         bytes: Vec<u8>,
         duration_ms: u64,
@@ -42,24 +42,26 @@ impl MediaUpload {
         }
     }
 
-    pub fn audio(
+    /// Selects an already encoded OPUS audio file.
+    pub fn opus_audio(
         file_name: impl Into<String>,
         bytes: impl Into<Vec<u8>>,
         duration_ms: u64,
     ) -> Self {
-        Self::Audio {
+        Self::OpusAudio {
             file_name: file_name.into(),
             bytes: bytes.into(),
             duration_ms,
         }
     }
 
-    pub fn video(
+    /// Selects an already encoded MP4 video file.
+    pub fn mp4_video(
         file_name: impl Into<String>,
         bytes: impl Into<Vec<u8>>,
         duration_ms: u64,
     ) -> Self {
-        Self::Video {
+        Self::Mp4Video {
             file_name: file_name.into(),
             bytes: bytes.into(),
             duration_ms,
@@ -134,12 +136,13 @@ where
                 self.upload_file(ResourceType::File, FileType::Stream, file_name, bytes, None)
                     .await
             }
-            MediaUpload::Audio {
+            MediaUpload::OpusAudio {
                 file_name,
                 bytes,
                 duration_ms,
             } => {
                 validate_duration(duration_ms)?;
+                validate_media_extension(&file_name, "opus", "OPUS audio")?;
                 self.upload_file(
                     ResourceType::Audio,
                     FileType::Opus,
@@ -149,12 +152,13 @@ where
                 )
                 .await
             }
-            MediaUpload::Video {
+            MediaUpload::Mp4Video {
                 file_name,
                 bytes,
                 duration_ms,
             } => {
                 validate_duration(duration_ms)?;
+                validate_media_extension(&file_name, "mp4", "MP4 video")?;
                 self.upload_file(
                     ResourceType::Media,
                     FileType::Mp4,
@@ -195,6 +199,16 @@ fn validate_duration(duration_ms: u64) -> Result<()> {
         return Err(Error::Validation(
             "audio/video duration_ms must be greater than zero".to_owned(),
         ));
+    }
+    Ok(())
+}
+
+fn validate_media_extension(file_name: &str, expected: &str, kind: &str) -> Result<()> {
+    let extension = file_name.rsplit_once('.').map(|(_, extension)| extension);
+    if !extension.is_some_and(|extension| extension.eq_ignore_ascii_case(expected)) {
+        return Err(Error::Validation(format!(
+            "{kind} file_name must use the .{expected} suffix"
+        )));
     }
     Ok(())
 }
@@ -262,13 +276,13 @@ mod tests {
                 None,
             ),
             (
-                MediaUpload::audio("voice.opus", vec![2], 1500),
+                MediaUpload::opus_audio("voice.opus", vec![2], 1500),
                 ResourceType::Audio,
                 "opus",
                 Some("1500"),
             ),
             (
-                MediaUpload::video("clip.mp4", vec![3], 2500),
+                MediaUpload::mp4_video("clip.mp4", vec![3], 2500),
                 ResourceType::Media,
                 "mp4",
                 Some("2500"),
@@ -304,10 +318,27 @@ mod tests {
         let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
         let uploader = MediaUploader::new(client);
 
-        let audio = block_on(uploader.upload(MediaUpload::audio("voice.opus", vec![1], 0)))
+        let audio = block_on(uploader.upload(MediaUpload::opus_audio("voice.opus", vec![1], 0)))
             .expect_err("zero audio duration");
-        let video = block_on(uploader.upload(MediaUpload::video("clip.mp4", vec![1], 0)))
+        let video = block_on(uploader.upload(MediaUpload::mp4_video("clip.mp4", vec![1], 0)))
             .expect_err("zero video duration");
+
+        assert!(matches!(audio, Error::Validation(_)));
+        assert!(matches!(video, Error::Validation(_)));
+        assert!(transport.calls().is_empty());
+        assert!(transport.multipart_calls().is_empty());
+    }
+
+    #[test]
+    fn rejects_mismatched_audio_or_video_suffix_before_authentication() {
+        let transport = FakeTransport::with_multipart_responses(Vec::new(), Vec::new());
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+        let uploader = MediaUploader::new(client);
+
+        let audio = block_on(uploader.upload(MediaUpload::opus_audio("voice.mp3", vec![1], 1000)))
+            .expect_err("non-OPUS audio suffix");
+        let video = block_on(uploader.upload(MediaUpload::mp4_video("clip.mov", vec![1], 1000)))
+            .expect_err("non-MP4 video suffix");
 
         assert!(matches!(audio, Error::Validation(_)));
         assert!(matches!(video, Error::Validation(_)));

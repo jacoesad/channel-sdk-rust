@@ -119,7 +119,7 @@ Milestone 4 starts from the minimal inbound message parser delivered in Mileston
 ## Milestone 6: Media Helpers
 
 - Download message resources
-- Upload in-memory images, files, audio, and video through official image/file endpoints
+- Upload in-memory images, files, pre-encoded OPUS audio, and MP4 video through official image/file endpoints
 - Resource descriptors with filenames and MIME hints
 - Optional path and URL source adapters with explicit filesystem and SSRF policy
 

@@ -193,7 +193,7 @@ export LARK_UPLOAD_TYPE=image
 cargo run --example upload_resource
 ```
 
-`LARK_UPLOAD_TYPE` accepts `image`, `file`, `audio`, or `video`. Audio and video additionally require a positive `LARK_UPLOAD_DURATION_MS`. Images use the official `message` image type; generic files use `stream`; audio uses `opus`; video uses `mp4`. Images are limited to 10 MB and files to 30 MB.
+`LARK_UPLOAD_TYPE` accepts `image`, `file`, `opus`, or `mp4`. OPUS audio and MP4 video additionally require a positive `LARK_UPLOAD_DURATION_MS` and a matching `.opus` or `.mp4` filename. The example does not transcode media. Images use the official `message` image type; generic files use `stream`. Images are limited to 10 MB and files to 30 MB.
 
 The example performs the local file read explicitly. `MediaUploader` itself accepts in-memory bytes and does not choose paths, fetch URLs, infer duration, or retry an upload.
 

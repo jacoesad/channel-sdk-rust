@@ -41,11 +41,19 @@ fn upload_from_env(file_name: String, bytes: Vec<u8>) -> Result<MediaUpload, io:
     match required_env("LARK_UPLOAD_TYPE")?.as_str() {
         "image" => Ok(MediaUpload::image(bytes)),
         "file" => Ok(MediaUpload::file(file_name, bytes)),
-        "audio" => Ok(MediaUpload::audio(file_name, bytes, required_duration()?)),
-        "video" => Ok(MediaUpload::video(file_name, bytes, required_duration()?)),
+        "opus" => Ok(MediaUpload::opus_audio(
+            file_name,
+            bytes,
+            required_duration()?,
+        )),
+        "mp4" => Ok(MediaUpload::mp4_video(
+            file_name,
+            bytes,
+            required_duration()?,
+        )),
         value => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("LARK_UPLOAD_TYPE must be image, file, audio, or video; got {value}"),
+            format!("LARK_UPLOAD_TYPE must be image, file, opus, or mp4; got {value}"),
         )),
     }
 }

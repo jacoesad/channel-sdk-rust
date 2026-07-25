@@ -41,8 +41,8 @@ The high-level mappings are:
 | --- | --- | --- | --- | --- |
 | Image | create image | `message` | bytes | 10 MB |
 | File | create file | `stream` | filename, bytes | 30 MB |
-| Audio | create file | `opus` | filename, bytes, positive duration | 30 MB |
-| Video | create file | `mp4` | filename, bytes, positive duration | 30 MB |
+| OPUS audio | create file | `opus` | `.opus` filename, pre-encoded bytes, positive duration | 30 MB |
+| MP4 video | create file | `mp4` | `.mp4` filename, pre-encoded bytes, positive duration | 30 MB |
 
 The application must enable either `im:resource` or `im:resource:upload` for these upload endpoints.
 
@@ -69,4 +69,4 @@ println!("downloaded {} bytes", resource.len());
 
 `DownloadedResource` contains the complete in-memory bytes and optional `Content-Type` and `Content-Disposition` response metadata. The Reqwest transport enforces the platform's 100 MB per-resource limit while reading the response. Callers should release large byte buffers promptly.
 
-The SDK does not read or write local paths, fetch arbitrary URLs, infer audio/video duration, or retry media transfers. Applications can read an approved path and pass the resulting bytes to `MediaUploader`. A future path or URL source adapter must define explicit filesystem and SSRF policy before it is added.
+The SDK does not read or write local paths, fetch arbitrary URLs, transcode media, infer audio/video duration, or retry media transfers. Applications can read an approved path and pass the resulting bytes to `MediaUploader`. Audio must already be OPUS, and video must already be MP4; the high-level uploader checks the filename suffix while the platform validates the actual media bytes. A future path or URL source adapter must define explicit filesystem and SSRF policy before it is added.

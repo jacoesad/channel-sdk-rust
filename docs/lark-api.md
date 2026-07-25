@@ -15,6 +15,8 @@ The selected domain comes from `ChannelConfig`:
 | Tenant Access Token | `POST /open-apis/auth/v3/tenant_access_token/internal` | `OpenApiClient::tenant_access_token` |
 | Create Message | `POST /open-apis/im/v1/messages` | `OpenApiClient::create_message` |
 | Reply Message | `POST /open-apis/im/v1/messages/{message_id}/reply` | `OpenApiClient::reply_message` |
+| Create Image | `POST /open-apis/im/v1/images` | `OpenApiClient::create_image` |
+| Create File | `POST /open-apis/im/v1/files` | `OpenApiClient::create_file` |
 | Get Message Resource | `GET /open-apis/im/v1/messages/{message_id}/resources/{file_key}` | `OpenApiClient::get_message_resource` |
 | Update Message Card | `PATCH /open-apis/im/v1/messages/{message_id}` | `OpenApiClient::update_message_card` |
 | Delayed Callback Card Update | `POST /open-apis/interactive/v1/card/update` | `OpenApiClient::update_message_card_with_callback_token` |
@@ -33,6 +35,8 @@ Official docs:
 - [Create Message](https://open.feishu.cn/document/server-docs/im-v1/message/create.md)
 - [Message Content](https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json.md)
 - [Reply Message](https://open.feishu.cn/document/server-docs/im-v1/message/reply.md)
+- [Create Image](https://open.feishu.cn/document/server-docs/im-v1/image/create.md)
+- [Create File](https://open.feishu.cn/document/server-docs/im-v1/file/create.md)
 - [Get Message Resource](https://open.feishu.cn/document/server-docs/im-v1/message/get-2)
 - [Update Message Card](https://open.feishu.cn/document/server-docs/im-v1/message-card/patch.md)
 - [Delayed Callback Card Update](https://open.feishu.cn/document/ukTMukTMukTM/uMDO1YjLzgTN24yM4UjN)
