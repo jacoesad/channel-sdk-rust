@@ -32,7 +32,10 @@ pub use event::{
     EventLoopOptions, EventPacketReassemblyOptions, EventReconnectLimit, EventStreamConnector,
     OpenApiWebSocketEventConnector, ReceivedEvent, WebSocketEndpointConnector,
 };
-pub use media::{DownloadedResource, MediaDownloader, ResourceDescriptor, ResourceType};
+pub use media::{
+    DownloadedResource, MediaDownloader, MediaUpload, MediaUploader, ResourceDescriptor,
+    ResourceType, UploadedResource,
+};
 pub use message::{
     ContinuingMarkdownStream, MarkdownStream, MarkdownStreamBuilder, MarkdownStreamPage,
     MessageBuilder, MessageChatType, MessageContent, MessageId, MessageMention,
