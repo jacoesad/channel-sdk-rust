@@ -586,6 +586,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reqwest_client_builders_apply_regular_client_settings() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bound test server");
+        let address = listener.local_addr().expect("test server address");
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let server_capture = captured.clone();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().expect("accepted request");
+            let request = read_http_request(&mut socket);
+            *server_capture.lock().expect("capture state") = request;
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                )
+                .expect("write response");
+        });
+
+        let mut default_headers = reqwest::header::HeaderMap::new();
+        default_headers.insert(
+            "x-regular-client",
+            reqwest::header::HeaderValue::from_static("configured"),
+        );
+        let transport = ReqwestOpenApiTransport::with_client_builders(
+            reqwest::Client::builder().default_headers(default_headers),
+            reqwest::Client::builder(),
+        )
+        .expect("configured transport");
+
+        let response = transport
+            .send_json(HttpRequest::empty(
+                HttpMethod::Get,
+                Url::parse(&format!("http://{address}/json")).expect("test URL"),
+            ))
+            .await
+            .expect("JSON response");
+        server.join().expect("test server joined");
+
+        assert_eq!(response.body, json!({}));
+        let request = captured.lock().expect("capture state");
+        let request = String::from_utf8_lossy(&request);
+        assert!(request.contains("x-regular-client: configured\r\n"));
+    }
+
+    #[tokio::test]
     async fn reqwest_serializes_multipart_text_and_file_parts() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bound test server");
         let address = listener.local_addr().expect("test server address");
