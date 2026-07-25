@@ -17,7 +17,7 @@ use crate::{Error, MessageContent, MessageId, PostContent, Recipient, Result};
 const MAX_OPENAPI_UUID_CHARS: usize = 50;
 static NEXT_IDEMPOTENCY_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
-/// High-level sender for outbound text messages and replies.
+/// High-level sender for outbound messages and replies.
 ///
 /// `MessageSender` generates an idempotency key once per logical send/reply by
 /// default, or accepts a caller-provided `uuid`, and reuses that value across
