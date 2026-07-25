@@ -129,6 +129,10 @@ For received messages, resource descriptors are derived from the official receiv
 - `Recipient::User(open_id)` -> `receive_id_type=open_id`, `receive_id=<open_id>`
 - `MessageContent::Text` -> `msg_type=text`
 - `MessageContent::Post` -> `msg_type=post`
+- `MessageContent::Image` -> `msg_type=image` with `image_key`
+- `MessageContent::File` -> `msg_type=file` with `file_key`
+- `MessageContent::Audio` -> `msg_type=audio` with `file_key`
+- `MessageContent::Media` -> `msg_type=media` with `file_key` and an optional cover `image_key`
 - `MessageContent::Card` -> raw `msg_type=interactive` content, including template cards
 - `MessageContent::CardReference` -> `msg_type=interactive` with a CardKit `card_id` reference
 - `MessageContent::Custom` -> caller-provided `msg_type`
@@ -140,6 +144,10 @@ For received messages, resource descriptors are derived from the official receiv
 - `MessageId` -> path field `{message_id}`
 - `MessageContent::Text` -> `msg_type=text`
 - `MessageContent::Post` -> `msg_type=post`
+- `MessageContent::Image` -> `msg_type=image` with `image_key`
+- `MessageContent::File` -> `msg_type=file` with `file_key`
+- `MessageContent::Audio` -> `msg_type=audio` with `file_key`
+- `MessageContent::Media` -> `msg_type=media` with `file_key` and an optional cover `image_key`
 - `MessageContent::Card` -> raw `msg_type=interactive` content, including template cards
 - `MessageContent::CardReference` -> `msg_type=interactive` with a CardKit `card_id` reference
 - `MessageContent::Custom` -> caller-provided `msg_type`

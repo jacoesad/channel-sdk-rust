@@ -196,6 +196,40 @@ impl TryFrom<MessageContent> for OpenApiMessageContent {
                     content: serde_json::to_value(post)?,
                 })
             }
+            MessageContent::Image { image_key } => Ok(Self {
+                msg_type: "image".to_owned(),
+                content: serde_json::json!({
+                    "image_key": validate_resource_key(image_key, "image_key")?
+                }),
+            }),
+            MessageContent::File { file_key } => Ok(Self {
+                msg_type: "file".to_owned(),
+                content: serde_json::json!({
+                    "file_key": validate_resource_key(file_key, "file_key")?
+                }),
+            }),
+            MessageContent::Audio { file_key } => Ok(Self {
+                msg_type: "audio".to_owned(),
+                content: serde_json::json!({
+                    "file_key": validate_resource_key(file_key, "file_key")?
+                }),
+            }),
+            MessageContent::Media {
+                file_key,
+                image_key,
+            } => {
+                let mut content = serde_json::json!({
+                    "file_key": validate_resource_key(file_key, "file_key")?
+                });
+                if let Some(image_key) = image_key {
+                    content["image_key"] =
+                        Value::String(validate_resource_key(image_key, "image_key")?);
+                }
+                Ok(Self {
+                    msg_type: "media".to_owned(),
+                    content,
+                })
+            }
             MessageContent::Card { card } => Ok(Self {
                 msg_type: "interactive".to_owned(),
                 content: card,
@@ -213,6 +247,13 @@ impl TryFrom<MessageContent> for OpenApiMessageContent {
             MessageContent::Custom { msg_type, content } => Ok(Self { msg_type, content }),
         }
     }
+}
+
+fn validate_resource_key(key: String, field: &str) -> Result<String> {
+    if key.trim().is_empty() {
+        return Err(Error::Validation(format!("{field} must not be empty")));
+    }
+    Ok(key)
 }
 
 #[derive(Debug, Serialize)]
@@ -242,4 +283,131 @@ struct MessageResponse {
 #[derive(Debug, serde::Deserialize)]
 struct SendMessageData {
     message_id: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::ChannelConfig;
+    use crate::lark_openapi::HttpResponse;
+    use crate::lark_openapi::test_support::{FakeTransport, block_on};
+
+    fn message_client() -> (OpenApiClient<FakeTransport>, FakeTransport) {
+        let transport = FakeTransport::new(vec![
+            HttpResponse::json(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "tenant-token-1",
+                    "expire": 7200
+                }),
+            ),
+            HttpResponse::json(
+                200,
+                json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "data": { "message_id": "om_media" }
+                }),
+            ),
+        ]);
+        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+        (client, transport)
+    }
+
+    #[test]
+    fn create_message_serializes_official_media_content_shapes() {
+        let cases = [
+            (
+                MessageContent::Image {
+                    image_key: "img_123".to_owned(),
+                },
+                "image",
+                json!({ "image_key": "img_123" }),
+            ),
+            (
+                MessageContent::File {
+                    file_key: "file_123".to_owned(),
+                },
+                "file",
+                json!({ "file_key": "file_123" }),
+            ),
+            (
+                MessageContent::Audio {
+                    file_key: "file_audio".to_owned(),
+                },
+                "audio",
+                json!({ "file_key": "file_audio" }),
+            ),
+            (
+                MessageContent::Media {
+                    file_key: "file_video".to_owned(),
+                    image_key: Some("img_cover".to_owned()),
+                },
+                "media",
+                json!({
+                    "file_key": "file_video",
+                    "image_key": "img_cover"
+                }),
+            ),
+            (
+                MessageContent::Media {
+                    file_key: "file_video".to_owned(),
+                    image_key: None,
+                },
+                "media",
+                json!({ "file_key": "file_video" }),
+            ),
+        ];
+
+        for (content, expected_type, expected_content) in cases {
+            let (client, transport) = message_client();
+
+            block_on(client.create_message(Recipient::Chat("oc_123".to_owned()), content))
+                .expect("sent media message");
+
+            let body = &transport.calls()[1].body;
+            assert_eq!(body["msg_type"], expected_type);
+            assert_eq!(
+                serde_json::from_str::<Value>(body["content"].as_str().expect("content string"))
+                    .expect("content json"),
+                expected_content
+            );
+        }
+    }
+
+    #[test]
+    fn media_content_rejects_empty_keys_before_authentication() {
+        let cases = [
+            MessageContent::Image {
+                image_key: " ".to_owned(),
+            },
+            MessageContent::File {
+                file_key: String::new(),
+            },
+            MessageContent::Audio {
+                file_key: "\t".to_owned(),
+            },
+            MessageContent::Media {
+                file_key: "file_video".to_owned(),
+                image_key: Some(String::new()),
+            },
+        ];
+
+        for content in cases {
+            let transport = FakeTransport::new(Vec::new());
+            let client =
+                OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
+
+            let error =
+                block_on(client.create_message(Recipient::Chat("oc_123".to_owned()), content))
+                    .expect_err("empty resource key");
+
+            assert!(matches!(error, Error::Validation(_)));
+            assert!(transport.calls().is_empty());
+        }
+    }
 }

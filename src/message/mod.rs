@@ -4,6 +4,7 @@ use serde_json::Value;
 use crate::card::CardId;
 use crate::media::ResourceDescriptor;
 
+mod media;
 mod post;
 mod sender;
 mod streaming;
@@ -38,11 +39,36 @@ pub enum Recipient {
 #[serde(tag = "type", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum MessageContent {
-    Text { text: String },
-    Post { post: PostContent },
-    Card { card: Value },
-    CardReference { card_id: CardId },
-    Custom { msg_type: String, content: Value },
+    Text {
+        text: String,
+    },
+    Post {
+        post: PostContent,
+    },
+    Image {
+        image_key: String,
+    },
+    File {
+        file_key: String,
+    },
+    Audio {
+        file_key: String,
+    },
+    Media {
+        file_key: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        image_key: Option<String>,
+    },
+    Card {
+        card: Value,
+    },
+    CardReference {
+        card_id: CardId,
+    },
+    Custom {
+        msg_type: String,
+        content: Value,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
