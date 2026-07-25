@@ -30,7 +30,7 @@ Experimental. The crate currently contains the public module skeleton, shared da
 The repository is named `channel-sdk-rust` to match LarkSuite's official SDK naming style. The published Rust crate is `lark-channel`, and the Rust library target is `lark_channel`, so users can import it as:
 
 ```toml
-lark-channel = "0.4"
+lark-channel = "0.5"
 ```
 
 ```rust
@@ -79,7 +79,6 @@ let message_id = sender
 
 See [docs/roadmap.md](docs/roadmap.md) for the development plan.
 
-The next milestones are:
+The next milestone is:
 
-5. Rich content, cards, and streaming reply helpers.
 6. Media helper APIs.
