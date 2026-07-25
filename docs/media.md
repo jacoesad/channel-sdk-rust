@@ -1,6 +1,6 @@
 # Media
 
-`lark-channel` can upload in-memory media and download resource files attached to received Lark/Feishu messages. The high-level `MediaUploader` and `MediaDownloader` map Channel resource types to the official media OpenAPI endpoints while leaving filesystem and URL policy to the application.
+`lark-channel` can upload in-memory media, send or reply with uploaded resource keys, and download resource files attached to received Lark/Feishu messages. The high-level `MediaUploader`, `MessageSender`, and `MediaDownloader` map Channel resource types to the official media OpenAPI endpoints while leaving filesystem and URL policy to the application.
 
 ## Supported Resources
 
@@ -49,6 +49,30 @@ The application must enable either `im:resource` or `im:resource:upload` for the
 `UploadedResource::Image` contains an `image_key`. `UploadedResource::File` contains a `file_key`, filename, resource type, and optional duration. `MediaUploader` performs one request and does not automatically retry because the upload endpoints do not accept an idempotency key.
 
 Use `OpenApiClient::create_image` or `OpenApiClient::create_file` when the application needs the complete low-level official type set, including avatar images and `pdf`, `doc`, `xls`, or `ppt` file types.
+
+## Send Uploaded Resources
+
+Uploading and sending are deliberately separate operations. Convert an `UploadedResource` into `MessageContent`, then send it through the existing message builder:
+
+```rust
+use lark_channel::{
+    MediaUpload, MediaUploader, MessageContent, MessageSender, Recipient,
+};
+
+let uploader = MediaUploader::new(client.clone());
+let sender = MessageSender::new(client);
+let uploaded = uploader.upload(MediaUpload::image(image_bytes)).await?;
+let content = MessageContent::try_from(uploaded)?;
+
+let message_id = sender
+    .message(Recipient::Chat(chat_id), content)
+    .send()
+    .await?;
+```
+
+The conversion maps uploaded images to `image`, generic files to `file`, OPUS audio to `audio`, and MP4 video to the official `media` message type. It does not attach a video cover automatically; use `MessageContent::Media` or `MessageSender::media_message` when an uploaded cover `image_key` is available.
+
+This sequence performs two OpenAPI requests. Uploads are not retried automatically because those endpoints have no idempotency key. The subsequent message send uses the normal `MessageSender` UUID and transport-retry behavior. If sending fails after a successful upload, the resource remains uploaded and the application decides whether to retry the send with the same logical UUID.
 
 ## Download
 

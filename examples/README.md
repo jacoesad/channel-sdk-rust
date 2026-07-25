@@ -197,6 +197,21 @@ cargo run --example upload_resource
 
 The example performs the local file read explicitly. `MediaUploader` itself accepts in-memory bytes and does not choose paths, fetch URLs, infer duration, or retry an upload.
 
+## Upload and send a resource
+
+`upload_and_send.rs` composes the upload and message APIs without hiding their separate failure and retry behavior:
+
+```bash
+export LARK_APP_ID=cli_xxx
+export LARK_APP_SECRET=xxx
+export LARK_CHAT_ID=oc_xxx
+export LARK_UPLOAD_PATH=/absolute/path/to/image.png
+export LARK_UPLOAD_TYPE=image
+cargo run --example upload_and_send
+```
+
+`LARK_OPEN_ID` can replace `LARK_CHAT_ID`. Upload types and duration requirements match `upload_resource.rs`. The example performs one upload and then sends the returned resource key through `MessageSender`; a successful upload is not rolled back if message delivery fails.
+
 ## WebSocket endpoint and connection
 
 `ws_connect.rs` requests the long-connection WebSocket endpoint. By default it prints redacted endpoint metadata only. Set `LARK_WS_CONNECT=1` to open the WebSocket connection and close it immediately. Add `LARK_WS_RECEIVE_ONCE=1` to wait for one event through `EventConsumer`, print parsed event metadata including each resource descriptor's OpenAPI message ID and resource key, send an ACK, and close. Those values can be passed to `download_resource.rs`.

@@ -4,6 +4,7 @@ use serde_json::Value;
 use crate::card::CardId;
 use crate::media::ResourceDescriptor;
 
+mod media;
 mod post;
 mod sender;
 mod streaming;

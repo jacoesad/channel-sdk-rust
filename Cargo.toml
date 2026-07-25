@@ -57,6 +57,10 @@ name = "upload_resource"
 required-features = ["reqwest-transport"]
 
 [[example]]
+name = "upload_and_send"
+required-features = ["reqwest-transport"]
+
+[[example]]
 name = "ws_connect"
 required-features = ["reqwest-transport", "websocket"]
 

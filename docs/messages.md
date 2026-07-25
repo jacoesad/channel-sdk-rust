@@ -1,21 +1,29 @@
 # Messages
 
-This document describes the message behavior currently exposed by `lark-channel`, including outbound text and rich-text messages, high-level Markdown streaming, replies, and inbound message normalization.
+This document describes the message behavior currently exposed by `lark-channel`, including outbound text, rich-text, and media messages, high-level Markdown streaming, replies, and inbound message normalization.
 
 ## Current Scope
 
-The SDK currently provides a high-level `MessageSender` for text, rich-text, and streaming Markdown messages and replies:
+The SDK currently provides a high-level `MessageSender` for text, rich-text, media, and streaming Markdown messages and replies:
 
 - `MessageSender::message`
 - `MessageSender::text_message`
 - `MessageSender::post_message`
 - `MessageSender::markdown_message`
+- `MessageSender::image_message`
+- `MessageSender::file_message`
+- `MessageSender::audio_message`
+- `MessageSender::media_message`
 - `MessageSender::card_message`
 - `MessageSender::card_reference_message`
 - `MessageSender::reply`
 - `MessageSender::text_reply`
 - `MessageSender::post_reply`
 - `MessageSender::markdown_reply`
+- `MessageSender::image_reply`
+- `MessageSender::file_reply`
+- `MessageSender::audio_reply`
+- `MessageSender::media_reply`
 - `MessageSender::card_reply`
 - `MessageSender::card_reference_reply`
 - `MessageSender::markdown_stream_message`
@@ -27,13 +35,13 @@ The SDK currently provides a high-level `MessageSender` for text, rich-text, and
 - `MarkdownStream`
 - `ThrottledMarkdownStream`
 
-`message` and `reply` accept caller-provided `MessageContent`. `MessageContent::Card` remains the raw `interactive` escape hatch for official payloads such as template cards. `text_message` and `text_reply` are convenience entry points for plain text content. `post_message` and `post_reply` accept typed `PostContent`; `markdown_message` and `markdown_reply` wrap Markdown in native rich-text content automatically. `card_message` and `card_reply` accept a validated `Card` and send inline CardKit 2.0 JSON, while the card-reference variants send a pre-created `CardId`.
+`message` and `reply` accept caller-provided `MessageContent`. `MessageContent::Card` remains the raw `interactive` escape hatch for official payloads such as template cards. `text_message` and `text_reply` are convenience entry points for plain text content. `post_message` and `post_reply` accept typed `PostContent`; `markdown_message` and `markdown_reply` wrap Markdown in native rich-text content automatically. Image, file, audio, and media helpers accept resource keys returned by the official upload APIs. `media_message` and `media_reply` use the official `media` type for MP4 video and accept an optional uploaded image key as the cover. `card_message` and `card_reply` accept a validated `Card` and send inline CardKit 2.0 JSON, while the card-reference variants send a pre-created `CardId`.
 
 `PostContent::markdown` creates the official `post` shape with one `tag=md` element. Lark/Feishu renders the content according to the native Markdown syntax supported by the current platform and client, so the SDK does not maintain a separate Markdown parser. Consult the official message-content documentation for the current syntax and client-version limitations. `PostContent::text` creates a structured plain-text post, and `PostContentBuilder` can select the documented `zh_cn` or `en_us` locale, set a title, or append multiple Markdown and structured paragraphs.
 
 Structured paragraphs use `PostElement` helpers for text, the optional boolean `un_escape` text flag, validated links, @user/@all mentions, and supported `PostStyle` values. Native `md` elements must occupy their own paragraph. Use `MessageContent::Custom` as the lower-level escape hatch for official post elements or future locale values that are not modeled yet.
 
-`MessageContent` is non-exhaustive. Downstream matches must include a wildcard arm so future message content types can be added without another source-breaking enum change. Its serde representation is not forward-compatible with unknown future variants: when persisted data or mixed-version deployments are involved, upgrade readers before writers. The `Post` variant was introduced in the `v0.5.0` release line.
+`MessageContent` is non-exhaustive. Downstream matches must include a wildcard arm so future message content types can be added without another source-breaking enum change. Its serde representation is not forward-compatible with unknown future variants: when persisted data or mixed-version deployments are involved, upgrade readers before writers. The `Post` variant was introduced in the `v0.5.0` release line; media content variants are planned for the `v0.6.0` release line.
 
 The `v0.5.0` card API intentionally replaces the initial scaffold's public-field `Card` struct with an opaque, validated CardKit 2.0 value. Replace `Card { schema, body }` construction with `Card::builder()`, `Card::from_value(full_card_json)`, or `Card::raw(body_json)`, and propagate the returned `Result`. This is a source-breaking pre-1.0 migration; serialized CardKit JSON remains the official schema 2.0 shape.
 
@@ -84,7 +92,7 @@ The loop sends the official application-level heartbeat ping at the endpoint-pro
 
 Lower-level raw message entry points are available under `lark_channel::lark_openapi` for callers that need to pass `MessageContent` directly. See [lark-api.md](lark-api.md) for the exact official API mappings.
 
-Media upload and richer retry policies are planned follow-up work. The low-level CardKit streaming calls are documented in [lark-api.md](lark-api.md).
+Media uploads and messages are documented in [media.md](media.md). The low-level CardKit streaming calls are documented in [lark-api.md](lark-api.md).
 
 Runnable examples are documented in [../examples/README.md](../examples/README.md), including low-level create/reply calls and the high-level `MessageSender` flow.
 

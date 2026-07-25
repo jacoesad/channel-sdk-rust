@@ -13,7 +13,7 @@ The first target is to support agent/bot bridges such as `lark-coding-agent-brid
 
 ## Status
 
-Experimental. The crate currently contains the public module skeleton, shared data types, an OpenAPI foundation for app and tenant access-token management, outbound text and native Markdown/post messaging, CardKit 2.0 creation and update helpers, high-level Markdown streaming messages and replies with long-content continuation, idempotency options, an early WebSocket endpoint/connection foundation, inbound message and card action parsing, normalized inbound text/post/mention handling, message resource descriptors and bounded in-memory downloads/uploads, split-packet event reassembly, a single-connection event consumer, a reconnecting event loop with timer-driven heartbeat support, and a minimal echo bot example.
+Experimental. The crate currently contains the public module skeleton, shared data types, an OpenAPI foundation for app and tenant access-token management, outbound text, native Markdown/post, and media messaging, CardKit 2.0 creation and update helpers, high-level Markdown streaming messages and replies with long-content continuation, idempotency options, an early WebSocket endpoint/connection foundation, inbound message and card action parsing, normalized inbound text/post/mention handling, message resource descriptors and bounded in-memory downloads/uploads, split-packet event reassembly, a single-connection event consumer, a reconnecting event loop with timer-driven heartbeat support, and a minimal echo bot example.
 
 ## Planned Modules
 
