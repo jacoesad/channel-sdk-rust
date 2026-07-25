@@ -6,26 +6,43 @@ use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 use serde_json::Value;
 use url::Url;
 
-use crate::Result;
+use crate::{Error, Result};
 
-use super::{BoxFuture, HttpMethod, HttpRequest, HttpResponse, OpenApiTransport};
+use super::{
+    BinaryHttpResponse, BoxFuture, HttpMethod, HttpRequest, HttpResponse, OpenApiBinaryTransport,
+    OpenApiTransport,
+};
 
 #[derive(Clone, Debug)]
-pub(super) struct FakeTransport {
+pub(crate) struct FakeTransport {
     state: Arc<Mutex<FakeState>>,
 }
 
 impl FakeTransport {
-    pub(super) fn new(responses: Vec<HttpResponse>) -> Self {
+    pub(crate) fn new(responses: Vec<HttpResponse>) -> Self {
         Self {
             state: Arc::new(Mutex::new(FakeState {
                 responses: responses.into(),
+                binary_responses: VecDeque::new(),
                 calls: Vec::new(),
             })),
         }
     }
 
-    pub(super) fn calls(&self) -> Vec<FakeCall> {
+    pub(crate) fn with_binary_responses(
+        responses: Vec<HttpResponse>,
+        binary_responses: Vec<BinaryHttpResponse>,
+    ) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(FakeState {
+                responses: responses.into(),
+                binary_responses: binary_responses.into(),
+                calls: Vec::new(),
+            })),
+        }
+    }
+
+    pub(crate) fn calls(&self) -> Vec<FakeCall> {
         self.state().calls.clone()
     }
 
@@ -43,6 +60,7 @@ impl OpenApiTransport for FakeTransport {
                 url: request.url,
                 headers: request.headers,
                 body: request.body,
+                max_response_bytes: None,
             });
             state.responses.pop_front().expect("fake response")
         };
@@ -51,21 +69,55 @@ impl OpenApiTransport for FakeTransport {
     }
 }
 
+impl OpenApiBinaryTransport for FakeTransport {
+    fn send_bytes(
+        &self,
+        request: HttpRequest,
+        max_response_bytes: usize,
+    ) -> BoxFuture<'static, Result<BinaryHttpResponse>> {
+        let response = {
+            let mut state = self.state();
+            state.calls.push(FakeCall {
+                method: request.method,
+                url: request.url,
+                headers: request.headers,
+                body: request.body,
+                max_response_bytes: Some(max_response_bytes),
+            });
+            state
+                .binary_responses
+                .pop_front()
+                .expect("fake binary response")
+        };
+
+        Box::pin(async move {
+            if response.body.len() > max_response_bytes {
+                return Err(Error::Transport(format!(
+                    "binary response exceeds the {max_response_bytes}-byte limit"
+                )));
+            }
+            Ok(response)
+        })
+    }
+}
+
 #[derive(Debug)]
 struct FakeState {
     responses: VecDeque<HttpResponse>,
+    binary_responses: VecDeque<BinaryHttpResponse>,
     calls: Vec<FakeCall>,
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct FakeCall {
-    pub(super) method: HttpMethod,
-    pub(super) url: Url,
-    pub(super) headers: BTreeMap<String, String>,
-    pub(super) body: Value,
+pub(crate) struct FakeCall {
+    pub(crate) method: HttpMethod,
+    pub(crate) url: Url,
+    pub(crate) headers: BTreeMap<String, String>,
+    pub(crate) body: Value,
+    pub(crate) max_response_bytes: Option<usize>,
 }
 
-pub(super) fn block_on<F>(future: F) -> F::Output
+pub(crate) fn block_on<F>(future: F) -> F::Output
 where
     F: Future,
 {

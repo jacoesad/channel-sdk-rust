@@ -49,6 +49,10 @@ name = "markdown_stream"
 required-features = ["reqwest-transport"]
 
 [[example]]
+name = "download_resource"
+required-features = ["reqwest-transport"]
+
+[[example]]
 name = "ws_connect"
 required-features = ["reqwest-transport", "websocket"]
 

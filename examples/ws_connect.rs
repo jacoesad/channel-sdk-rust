@@ -71,7 +71,8 @@ fn print_received_event(event: &lark_channel::ReceivedEvent) {
             );
             for resource in &message.resources {
                 println!(
-                    "resource descriptor: type={:?}, file_key={:?}, image_key={:?}, file_name={:?}, duration_ms={:?}",
+                    "resource descriptor: message_id={}, type={:?}, file_key={:?}, image_key={:?}, file_name={:?}, duration_ms={:?}",
+                    resource.message_id,
                     resource.resource_type,
                     resource.file_key,
                     resource.image_key,

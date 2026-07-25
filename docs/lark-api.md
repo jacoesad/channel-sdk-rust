@@ -15,6 +15,7 @@ The selected domain comes from `ChannelConfig`:
 | Tenant Access Token | `POST /open-apis/auth/v3/tenant_access_token/internal` | `OpenApiClient::tenant_access_token` |
 | Create Message | `POST /open-apis/im/v1/messages` | `OpenApiClient::create_message` |
 | Reply Message | `POST /open-apis/im/v1/messages/{message_id}/reply` | `OpenApiClient::reply_message` |
+| Get Message Resource | `GET /open-apis/im/v1/messages/{message_id}/resources/{file_key}` | `OpenApiClient::get_message_resource` |
 | Update Message Card | `PATCH /open-apis/im/v1/messages/{message_id}` | `OpenApiClient::update_message_card` |
 | Delayed Callback Card Update | `POST /open-apis/interactive/v1/card/update` | `OpenApiClient::update_message_card_with_callback_token` |
 | Create Card Entity | `POST /open-apis/cardkit/v1/cards` | `OpenApiClient::create_card_entity` |
@@ -32,6 +33,7 @@ Official docs:
 - [Create Message](https://open.feishu.cn/document/server-docs/im-v1/message/create.md)
 - [Message Content](https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json.md)
 - [Reply Message](https://open.feishu.cn/document/server-docs/im-v1/message/reply.md)
+- [Get Message Resource](https://open.feishu.cn/document/server-docs/im-v1/message/get-2)
 - [Update Message Card](https://open.feishu.cn/document/server-docs/im-v1/message-card/patch.md)
 - [Delayed Callback Card Update](https://open.feishu.cn/document/ukTMukTMukTM/uMDO1YjLzgTN24yM4UjN)
 - [Create Card Entity](https://open.feishu.cn/document/cardkit-v1/card/create.md)
@@ -139,6 +141,19 @@ For received messages, resource descriptors are derived from the official receiv
 - `MessageContent::Custom` -> caller-provided `msg_type`
 - `content` is serialized as the JSON string required by the official API
 - `uuid` and `reply_in_thread` come from `MessageReplyOptions`
+
+## Media Mapping
+
+`OpenApiClient::get_message_resource` maps to the tenant-authenticated message-resource download endpoint:
+
+- `MessageResourceType::Image` -> `type=image` for image messages and rich-text images
+- `MessageResourceType::File` -> `type=file` for file, audio, and video resources
+- `message_id` and the resource key are validated before token acquisition
+- successful binary bodies are returned as `DownloadedResource`
+- `Content-Type` and `Content-Disposition` are preserved when present
+- the default Reqwest binary transport stops reading above the official 100 MB resource limit
+
+`OpenApiBinaryTransport` is a separate capability from `OpenApiTransport`, so custom JSON-only transports remain source-compatible. The current API buffers one bounded resource in memory. It does not write local paths, download folders or stickers, upload media, or retry downloads.
 
 ## Card Mapping
 
