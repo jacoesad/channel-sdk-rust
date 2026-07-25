@@ -11,6 +11,7 @@
 
 mod auth;
 mod card;
+mod media;
 mod message;
 mod response;
 #[cfg(test)]
@@ -27,10 +28,14 @@ use crate::{ChannelConfig, Result};
 
 pub use auth::{AppAccessTokenResponse, TenantAccessTokenResponse};
 pub use card::CardUpdateOptions;
+pub use media::{MAX_MESSAGE_RESOURCE_BYTES, MessageResourceType};
 pub use message::{MessageCreateOptions, MessageReplyOptions};
 #[cfg(feature = "reqwest-transport")]
 pub use transport::ReqwestOpenApiTransport;
-pub use transport::{BoxFuture, HttpMethod, HttpRequest, HttpResponse, OpenApiTransport};
+pub use transport::{
+    BinaryHttpResponse, BoxFuture, HttpMethod, HttpRequest, HttpResponse, OpenApiBinaryTransport,
+    OpenApiTransport,
+};
 #[cfg(feature = "websocket")]
 pub(crate) use ws::WebSocketConnectionItem;
 #[cfg(feature = "websocket")]
@@ -67,6 +72,10 @@ where
 
     pub fn config(&self) -> &ChannelConfig {
         &self.config
+    }
+
+    pub(crate) fn transport(&self) -> &T {
+        &self.transport
     }
 
     pub async fn post_openapi_json<B, R>(&self, path: &str, body: &B) -> Result<R>

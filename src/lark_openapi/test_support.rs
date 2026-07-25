@@ -6,9 +6,12 @@ use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 use serde_json::Value;
 use url::Url;
 
-use crate::Result;
+use crate::{Error, Result};
 
-use super::{BoxFuture, HttpMethod, HttpRequest, HttpResponse, OpenApiTransport};
+use super::{
+    BinaryHttpResponse, BoxFuture, HttpMethod, HttpRequest, HttpResponse, OpenApiBinaryTransport,
+    OpenApiTransport,
+};
 
 #[derive(Clone, Debug)]
 pub(super) struct FakeTransport {
@@ -20,6 +23,20 @@ impl FakeTransport {
         Self {
             state: Arc::new(Mutex::new(FakeState {
                 responses: responses.into(),
+                binary_responses: VecDeque::new(),
+                calls: Vec::new(),
+            })),
+        }
+    }
+
+    pub(super) fn with_binary_responses(
+        responses: Vec<HttpResponse>,
+        binary_responses: Vec<BinaryHttpResponse>,
+    ) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(FakeState {
+                responses: responses.into(),
+                binary_responses: binary_responses.into(),
                 calls: Vec::new(),
             })),
         }
@@ -43,6 +60,7 @@ impl OpenApiTransport for FakeTransport {
                 url: request.url,
                 headers: request.headers,
                 body: request.body,
+                max_response_bytes: None,
             });
             state.responses.pop_front().expect("fake response")
         };
@@ -51,9 +69,42 @@ impl OpenApiTransport for FakeTransport {
     }
 }
 
+impl OpenApiBinaryTransport for FakeTransport {
+    fn send_bytes(
+        &self,
+        request: HttpRequest,
+        max_response_bytes: usize,
+    ) -> BoxFuture<'static, Result<BinaryHttpResponse>> {
+        let response = {
+            let mut state = self.state();
+            state.calls.push(FakeCall {
+                method: request.method,
+                url: request.url,
+                headers: request.headers,
+                body: request.body,
+                max_response_bytes: Some(max_response_bytes),
+            });
+            state
+                .binary_responses
+                .pop_front()
+                .expect("fake binary response")
+        };
+
+        Box::pin(async move {
+            if response.body.len() > max_response_bytes {
+                return Err(Error::Transport(format!(
+                    "binary response exceeds the {max_response_bytes}-byte limit"
+                )));
+            }
+            Ok(response)
+        })
+    }
+}
+
 #[derive(Debug)]
 struct FakeState {
     responses: VecDeque<HttpResponse>,
+    binary_responses: VecDeque<BinaryHttpResponse>,
     calls: Vec<FakeCall>,
 }
 
@@ -63,6 +114,7 @@ pub(super) struct FakeCall {
     pub(super) url: Url,
     pub(super) headers: BTreeMap<String, String>,
     pub(super) body: Value,
+    pub(super) max_response_bytes: Option<usize>,
 }
 
 pub(super) fn block_on<F>(future: F) -> F::Output

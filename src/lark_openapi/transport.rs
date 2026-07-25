@@ -29,6 +29,16 @@ pub struct HttpRequest {
 }
 
 impl HttpRequest {
+    /// Creates a request without a body or implied content type.
+    pub fn empty(method: HttpMethod, url: Url) -> Self {
+        Self {
+            method,
+            url,
+            headers: BTreeMap::new(),
+            body: Value::Null,
+        }
+    }
+
     /// Creates a JSON request with the supplied HTTP method.
     pub fn json(method: HttpMethod, url: Url, body: Value) -> Self {
         let mut headers = BTreeMap::new();
@@ -66,8 +76,46 @@ impl HttpResponse {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BinaryHttpResponse {
+    pub status: u16,
+    pub headers: BTreeMap<String, String>,
+    pub body: Vec<u8>,
+}
+
+impl BinaryHttpResponse {
+    pub fn new(status: u16, headers: BTreeMap<String, String>, body: Vec<u8>) -> Self {
+        Self {
+            status,
+            headers,
+            body,
+        }
+    }
+
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(header_name, _)| header_name.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+}
+
 pub trait OpenApiTransport: Clone + Send + Sync + 'static {
     fn send_json(&self, request: HttpRequest) -> BoxFuture<'static, Result<HttpResponse>>;
+}
+
+/// Optional transport capability for bounded binary response bodies.
+///
+/// This is separate from [`OpenApiTransport`] so existing custom JSON
+/// transports do not need to implement binary downloads. Implementations must
+/// stop reading and return an error when the response body exceeds
+/// `max_response_bytes`.
+pub trait OpenApiBinaryTransport: OpenApiTransport {
+    fn send_bytes(
+        &self,
+        request: HttpRequest,
+        max_response_bytes: usize,
+    ) -> BoxFuture<'static, Result<BinaryHttpResponse>>;
 }
 
 #[cfg(feature = "reqwest-transport")]
@@ -102,22 +150,7 @@ impl OpenApiTransport for ReqwestOpenApiTransport {
         let client = self.client.clone();
 
         Box::pin(async move {
-            let HttpRequest {
-                method,
-                url,
-                headers,
-                body,
-            } = request;
-
-            let mut builder = client.request(method.into(), url);
-            for (name, value) in headers {
-                builder = builder.header(name, value);
-            }
-            if !body.is_null() {
-                builder = builder.json(&body);
-            }
-
-            let response = builder
+            let response = reqwest_request(&client, request)
                 .send()
                 .await
                 .map_err(|error| Error::Transport(error.to_string()))?;
@@ -133,6 +166,90 @@ impl OpenApiTransport for ReqwestOpenApiTransport {
             Ok(HttpResponse { status, body })
         })
     }
+}
+
+#[cfg(feature = "reqwest-transport")]
+impl OpenApiBinaryTransport for ReqwestOpenApiTransport {
+    fn send_bytes(
+        &self,
+        request: HttpRequest,
+        max_response_bytes: usize,
+    ) -> BoxFuture<'static, Result<BinaryHttpResponse>> {
+        let client = self.client.clone();
+
+        Box::pin(async move {
+            let mut response = reqwest_request(&client, request)
+                .send()
+                .await
+                .map_err(|error| Error::Transport(error.to_string()))?;
+            let status = response.status().as_u16();
+            let headers = response
+                .headers()
+                .iter()
+                .filter_map(|(name, value)| {
+                    value
+                        .to_str()
+                        .ok()
+                        .map(|value| (name.as_str().to_owned(), value.to_owned()))
+                })
+                .collect();
+
+            if response
+                .content_length()
+                .is_some_and(|length| length > max_response_bytes as u64)
+            {
+                return Err(binary_response_too_large(max_response_bytes));
+            }
+
+            let mut body = Vec::new();
+            while let Some(chunk) = response
+                .chunk()
+                .await
+                .map_err(|error| Error::Transport(error.to_string()))?
+            {
+                let next_length = body
+                    .len()
+                    .checked_add(chunk.len())
+                    .ok_or_else(|| binary_response_too_large(max_response_bytes))?;
+                if next_length > max_response_bytes {
+                    return Err(binary_response_too_large(max_response_bytes));
+                }
+                body.extend_from_slice(&chunk);
+            }
+
+            Ok(BinaryHttpResponse {
+                status,
+                headers,
+                body,
+            })
+        })
+    }
+}
+
+#[cfg(feature = "reqwest-transport")]
+fn reqwest_request(client: &reqwest::Client, request: HttpRequest) -> reqwest::RequestBuilder {
+    let HttpRequest {
+        method,
+        url,
+        headers,
+        body,
+    } = request;
+
+    let mut builder = client.request(method.into(), url);
+    for (name, value) in headers {
+        builder = builder.header(name, value);
+    }
+    if !body.is_null() {
+        builder = builder.json(&body);
+    }
+    builder
+}
+
+#[cfg(feature = "reqwest-transport")]
+fn binary_response_too_large(max_response_bytes: usize) -> Error {
+    Error::Transport(format!(
+        "binary response exceeds the {max_response_bytes}-byte limit"
+    ))
 }
 
 #[cfg(feature = "reqwest-transport")]
@@ -198,6 +315,74 @@ mod tests {
             response.body,
             json!({ "code": 0, "data": { "value": "ok" } })
         );
+    }
+
+    #[tokio::test]
+    async fn reqwest_preserves_binary_bodies_and_response_headers() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bound test server");
+        let address = listener.local_addr().expect("test server address");
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().expect("accepted request");
+            let mut request = [0_u8; 4096];
+            let _ = socket.read(&mut request).expect("read request");
+            let body = [0_u8, 159, 146, 150];
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Disposition: attachment; filename=\"image.png\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            socket.write_all(head.as_bytes()).expect("write headers");
+            socket.write_all(&body).expect("write body");
+        });
+
+        let response = ReqwestOpenApiTransport::new()
+            .send_bytes(
+                HttpRequest::empty(
+                    HttpMethod::Get,
+                    Url::parse(&format!("http://{address}/binary")).expect("test URL"),
+                ),
+                16,
+            )
+            .await
+            .expect("binary response");
+        server.join().expect("test server joined");
+
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body, vec![0, 159, 146, 150]);
+        assert_eq!(response.header("content-type"), Some("image/png"));
+        assert_eq!(
+            response.header("content-disposition"),
+            Some("attachment; filename=\"image.png\"")
+        );
+    }
+
+    #[tokio::test]
+    async fn reqwest_rejects_binary_content_length_over_the_limit() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bound test server");
+        let address = listener.local_addr().expect("test server address");
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().expect("accepted request");
+            let mut request = [0_u8; 4096];
+            let _ = socket.read(&mut request).expect("read request");
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 4\r\nConnection: close\r\n\r\nbody",
+                )
+                .expect("write response");
+        });
+
+        let error = ReqwestOpenApiTransport::new()
+            .send_bytes(
+                HttpRequest::empty(
+                    HttpMethod::Get,
+                    Url::parse(&format!("http://{address}/binary")).expect("test URL"),
+                ),
+                3,
+            )
+            .await
+            .expect_err("oversized response");
+        server.join().expect("test server joined");
+
+        assert!(matches!(error, Error::Transport(message) if message.contains("3-byte limit")));
     }
 
     async fn send_test_response(status: &str, content_type: &str, body: &str) -> HttpResponse {

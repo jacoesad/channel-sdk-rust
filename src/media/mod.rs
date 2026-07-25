@@ -27,3 +27,21 @@ pub struct ResourceDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
 }
+
+/// In-memory resource downloaded from a Lark/Feishu message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DownloadedResource {
+    pub bytes: Vec<u8>,
+    pub content_type: Option<String>,
+    pub content_disposition: Option<String>,
+}
+
+impl DownloadedResource {
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
+    }
+}
