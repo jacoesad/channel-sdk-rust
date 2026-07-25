@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 
 mod downloader;
+mod uploader;
 
 pub use downloader::MediaDownloader;
+pub use uploader::{MediaUpload, MediaUploader, UploadedResource};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

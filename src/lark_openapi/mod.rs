@@ -28,13 +28,16 @@ use crate::{ChannelConfig, Result};
 
 pub use auth::{AppAccessTokenResponse, TenantAccessTokenResponse};
 pub use card::CardUpdateOptions;
-pub use media::{MAX_MESSAGE_RESOURCE_BYTES, MessageResourceType};
+pub use media::{
+    FileCreateRequest, FileKey, FileType, ImageCreateRequest, ImageKey, ImageType,
+    MAX_FILE_UPLOAD_BYTES, MAX_IMAGE_UPLOAD_BYTES, MAX_MESSAGE_RESOURCE_BYTES, MessageResourceType,
+};
 pub use message::{MessageCreateOptions, MessageReplyOptions};
 #[cfg(feature = "reqwest-transport")]
 pub use transport::ReqwestOpenApiTransport;
 pub use transport::{
-    BinaryHttpResponse, BoxFuture, HttpMethod, HttpRequest, HttpResponse, OpenApiBinaryTransport,
-    OpenApiTransport,
+    BinaryHttpResponse, BoxFuture, HttpMethod, HttpRequest, HttpResponse, MultipartPart,
+    MultipartRequest, OpenApiBinaryTransport, OpenApiMultipartTransport, OpenApiTransport,
 };
 #[cfg(feature = "websocket")]
 pub(crate) use ws::WebSocketConnectionItem;

@@ -53,6 +53,10 @@ name = "download_resource"
 required-features = ["reqwest-transport"]
 
 [[example]]
+name = "upload_resource"
+required-features = ["reqwest-transport"]
+
+[[example]]
 name = "ws_connect"
 required-features = ["reqwest-transport", "websocket"]
 
@@ -73,7 +77,7 @@ websocket = ["dep:base64", "dep:futures-util", "dep:prost", "dep:tokio", "dep:to
 base64 = { version = "0.22", optional = true }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"], optional = true }
 prost = { version = "0.13", optional = true }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

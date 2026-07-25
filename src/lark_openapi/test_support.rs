@@ -9,8 +9,8 @@ use url::Url;
 use crate::{Error, Result};
 
 use super::{
-    BinaryHttpResponse, BoxFuture, HttpMethod, HttpRequest, HttpResponse, OpenApiBinaryTransport,
-    OpenApiTransport,
+    BinaryHttpResponse, BoxFuture, HttpMethod, HttpRequest, HttpResponse, MultipartRequest,
+    OpenApiBinaryTransport, OpenApiMultipartTransport, OpenApiTransport,
 };
 
 #[derive(Clone, Debug)]
@@ -24,7 +24,9 @@ impl FakeTransport {
             state: Arc::new(Mutex::new(FakeState {
                 responses: responses.into(),
                 binary_responses: VecDeque::new(),
+                multipart_responses: VecDeque::new(),
                 calls: Vec::new(),
+                multipart_calls: Vec::new(),
             })),
         }
     }
@@ -37,13 +39,34 @@ impl FakeTransport {
             state: Arc::new(Mutex::new(FakeState {
                 responses: responses.into(),
                 binary_responses: binary_responses.into(),
+                multipart_responses: VecDeque::new(),
                 calls: Vec::new(),
+                multipart_calls: Vec::new(),
+            })),
+        }
+    }
+
+    pub(crate) fn with_multipart_responses(
+        responses: Vec<HttpResponse>,
+        multipart_responses: Vec<HttpResponse>,
+    ) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(FakeState {
+                responses: responses.into(),
+                binary_responses: VecDeque::new(),
+                multipart_responses: multipart_responses.into(),
+                calls: Vec::new(),
+                multipart_calls: Vec::new(),
             })),
         }
     }
 
     pub(crate) fn calls(&self) -> Vec<FakeCall> {
         self.state().calls.clone()
+    }
+
+    pub(crate) fn multipart_calls(&self) -> Vec<MultipartRequest> {
+        self.state().multipart_calls.clone()
     }
 
     fn state(&self) -> MutexGuard<'_, FakeState> {
@@ -101,11 +124,31 @@ impl OpenApiBinaryTransport for FakeTransport {
     }
 }
 
+impl OpenApiMultipartTransport for FakeTransport {
+    fn send_multipart(
+        &self,
+        request: MultipartRequest,
+    ) -> BoxFuture<'static, Result<HttpResponse>> {
+        let response = {
+            let mut state = self.state();
+            state.multipart_calls.push(request);
+            state
+                .multipart_responses
+                .pop_front()
+                .expect("fake multipart response")
+        };
+
+        Box::pin(async move { Ok(response) })
+    }
+}
+
 #[derive(Debug)]
 struct FakeState {
     responses: VecDeque<HttpResponse>,
     binary_responses: VecDeque<BinaryHttpResponse>,
+    multipart_responses: VecDeque<HttpResponse>,
     calls: Vec<FakeCall>,
+    multipart_calls: Vec<MultipartRequest>,
 }
 
 #[derive(Clone, Debug)]

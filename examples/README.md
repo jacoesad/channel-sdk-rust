@@ -181,6 +181,22 @@ cargo run --example download_resource
 
 `LARK_RESOURCE_TYPE` accepts `image` or `file`. Use `file` for ordinary files, audio, and video. The bot must belong to the message conversation, and the resource must not exceed the platform's 100 MB limit. The example does not write the response to disk.
 
+## Upload a resource
+
+`upload_resource.rs` reads one caller-selected local file into memory, uploads it, and prints the returned resource key:
+
+```bash
+export LARK_APP_ID=cli_xxx
+export LARK_APP_SECRET=xxx
+export LARK_UPLOAD_PATH=/absolute/path/to/image.png
+export LARK_UPLOAD_TYPE=image
+cargo run --example upload_resource
+```
+
+`LARK_UPLOAD_TYPE` accepts `image`, `file`, `opus`, or `mp4`. OPUS audio and MP4 video additionally require a positive `LARK_UPLOAD_DURATION_MS` and a matching `.opus` or `.mp4` filename. The example does not transcode media. Images use the official `message` image type; generic files use `stream`. Images are limited to 10 MB and files to 30 MB.
+
+The example performs the local file read explicitly. `MediaUploader` itself accepts in-memory bytes and does not choose paths, fetch URLs, infer duration, or retry an upload.
+
 ## WebSocket endpoint and connection
 
 `ws_connect.rs` requests the long-connection WebSocket endpoint. By default it prints redacted endpoint metadata only. Set `LARK_WS_CONNECT=1` to open the WebSocket connection and close it immediately. Add `LARK_WS_RECEIVE_ONCE=1` to wait for one event through `EventConsumer`, print parsed event metadata including each resource descriptor's OpenAPI message ID and resource key, send an ACK, and close. Those values can be passed to `download_resource.rs`.

@@ -15,6 +15,8 @@ The selected domain comes from `ChannelConfig`:
 | Tenant Access Token | `POST /open-apis/auth/v3/tenant_access_token/internal` | `OpenApiClient::tenant_access_token` |
 | Create Message | `POST /open-apis/im/v1/messages` | `OpenApiClient::create_message` |
 | Reply Message | `POST /open-apis/im/v1/messages/{message_id}/reply` | `OpenApiClient::reply_message` |
+| Create Image | `POST /open-apis/im/v1/images` | `OpenApiClient::create_image` |
+| Create File | `POST /open-apis/im/v1/files` | `OpenApiClient::create_file` |
 | Get Message Resource | `GET /open-apis/im/v1/messages/{message_id}/resources/{file_key}` | `OpenApiClient::get_message_resource` |
 | Update Message Card | `PATCH /open-apis/im/v1/messages/{message_id}` | `OpenApiClient::update_message_card` |
 | Delayed Callback Card Update | `POST /open-apis/interactive/v1/card/update` | `OpenApiClient::update_message_card_with_callback_token` |
@@ -33,6 +35,8 @@ Official docs:
 - [Create Message](https://open.feishu.cn/document/server-docs/im-v1/message/create.md)
 - [Message Content](https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json.md)
 - [Reply Message](https://open.feishu.cn/document/server-docs/im-v1/message/reply.md)
+- [Create Image](https://open.feishu.cn/document/server-docs/im-v1/image/create.md)
+- [Create File](https://open.feishu.cn/document/server-docs/im-v1/file/create.md)
 - [Get Message Resource](https://open.feishu.cn/document/server-docs/im-v1/message/get-2)
 - [Update Message Card](https://open.feishu.cn/document/server-docs/im-v1/message-card/patch.md)
 - [Delayed Callback Card Update](https://open.feishu.cn/document/ukTMukTMukTM/uMDO1YjLzgTN24yM4UjN)
@@ -144,6 +148,23 @@ For received messages, resource descriptors are derived from the official receiv
 
 ## Media Mapping
 
+`OpenApiClient::create_image` maps to `POST /open-apis/im/v1/images`:
+
+- the application must enable either `im:resource` or `im:resource:upload`
+- `ImageType::Message` -> `image_type=message`
+- `ImageType::Avatar` -> `image_type=avatar`
+- `image` is sent as a multipart file part
+- empty images and images above the official 10 MB limit fail before token acquisition
+- successful responses return a typed `ImageKey`
+
+`OpenApiClient::create_file` maps to `POST /open-apis/im/v1/files`:
+
+- the application must enable either `im:resource` or `im:resource:upload`
+- `FileType` maps to the official `opus`, `mp4`, `pdf`, `doc`, `xls`, `ppt`, and `stream` values
+- `file_name`, optional `duration`, and `file` are sent as multipart fields
+- empty files, files above the official 30 MB limit, and invalid filenames fail before token acquisition
+- successful responses return a typed `FileKey`
+
 `OpenApiClient::get_message_resource` maps to the tenant-authenticated message-resource download endpoint:
 
 - `MessageResourceType::Image` -> `type=image` for image messages and rich-text images
@@ -153,7 +174,7 @@ For received messages, resource descriptors are derived from the official receiv
 - `Content-Type` and `Content-Disposition` are preserved when present
 - the default Reqwest binary transport stops reading above the official 100 MB resource limit
 
-`OpenApiBinaryTransport` is a separate capability from `OpenApiTransport`, so custom JSON-only transports remain source-compatible. The current API buffers one bounded resource in memory. It does not write local paths, download folders or stickers, upload media, or retry downloads.
+`OpenApiMultipartTransport` and `OpenApiBinaryTransport` are separate capabilities from `OpenApiTransport`, so custom JSON-only transports remain source-compatible. The current APIs buffer one bounded resource in memory. They do not read or write local paths, fetch arbitrary URLs, download folders or stickers, or retry media transfers.
 
 ## Card Mapping
 
