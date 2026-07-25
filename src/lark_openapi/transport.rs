@@ -216,6 +216,27 @@ impl ReqwestOpenApiTransport {
             binary_client: binary_client(),
         }
     }
+
+    /// Builds independently configured JSON/multipart and binary clients.
+    ///
+    /// Redirects are always disabled for the binary client so message-resource
+    /// downloads preserve the original OpenAPI response status. Configure both
+    /// builders when network policy such as custom roots, proxies, or timeouts
+    /// must apply to every transport capability.
+    pub fn with_client_builders(
+        client_builder: reqwest::ClientBuilder,
+        binary_client_builder: reqwest::ClientBuilder,
+    ) -> Result<Self> {
+        let client = client_builder.build().map_err(|error| {
+            Error::Transport(format!("failed to build Reqwest client: {error}"))
+        })?;
+        let binary_client = build_binary_client(binary_client_builder).map_err(Error::Transport)?;
+
+        Ok(Self {
+            client,
+            binary_client: Ok(binary_client),
+        })
+    }
 }
 
 #[cfg(feature = "reqwest-transport")]
@@ -393,7 +414,14 @@ fn binary_response_too_large(max_response_bytes: usize) -> Error {
 
 #[cfg(feature = "reqwest-transport")]
 fn binary_client() -> std::result::Result<reqwest::Client, String> {
-    reqwest::Client::builder()
+    build_binary_client(reqwest::Client::builder())
+}
+
+#[cfg(feature = "reqwest-transport")]
+fn build_binary_client(
+    builder: reqwest::ClientBuilder,
+) -> std::result::Result<reqwest::Client, String> {
+    builder
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|error| format!("failed to build binary Reqwest client: {error}"))
@@ -511,6 +539,50 @@ mod tests {
             response.header("content-disposition"),
             Some("attachment; filename=\"image.png\"")
         );
+    }
+
+    #[tokio::test]
+    async fn reqwest_client_builders_apply_binary_client_settings() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bound test server");
+        let address = listener.local_addr().expect("test server address");
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let server_capture = captured.clone();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().expect("accepted request");
+            let request = read_http_request(&mut socket);
+            *server_capture.lock().expect("capture state") = request;
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .expect("write response");
+        });
+
+        let mut default_headers = reqwest::header::HeaderMap::new();
+        default_headers.insert(
+            "x-binary-client",
+            reqwest::header::HeaderValue::from_static("configured"),
+        );
+        let transport = ReqwestOpenApiTransport::with_client_builders(
+            reqwest::Client::builder(),
+            reqwest::Client::builder().default_headers(default_headers),
+        )
+        .expect("configured transport");
+
+        let response = transport
+            .send_bytes(
+                HttpRequest::empty(
+                    HttpMethod::Get,
+                    Url::parse(&format!("http://{address}/binary")).expect("test URL"),
+                ),
+                16,
+            )
+            .await
+            .expect("binary response");
+        server.join().expect("test server joined");
+
+        assert_eq!(response.body, b"ok");
+        let request = captured.lock().expect("capture state");
+        let request = String::from_utf8_lossy(&request);
+        assert!(request.contains("x-binary-client: configured\r\n"));
     }
 
     #[tokio::test]
@@ -661,6 +733,14 @@ mod tests {
         assert_binary_redirect_is_not_followed(ReqwestOpenApiTransport::with_client(
             reqwest::Client::new(),
         ))
+        .await;
+        assert_binary_redirect_is_not_followed(
+            ReqwestOpenApiTransport::with_client_builders(
+                reqwest::Client::builder(),
+                reqwest::Client::builder(),
+            )
+            .expect("configured transport"),
+        )
         .await;
     }
 

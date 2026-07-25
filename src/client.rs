@@ -1,9 +1,7 @@
-use std::path::PathBuf;
-
 use crate::Result;
 use crate::card::Card;
 use crate::event::ChannelEvent;
-use crate::media::ResourceDescriptor;
+use crate::media::{DownloadedResource, ResourceDescriptor};
 use crate::message::{MessageContent, MessageId, Recipient};
 
 pub trait ChannelClient {
@@ -24,8 +22,7 @@ pub trait ChannelClient {
     fn download_resource(
         &self,
         resource: ResourceDescriptor,
-        path: PathBuf,
-    ) -> impl std::future::Future<Output = Result<()>> + Send;
+    ) -> impl std::future::Future<Output = Result<DownloadedResource>> + Send;
 
     fn next_event(&self) -> impl std::future::Future<Output = Result<Option<ChannelEvent>>> + Send;
 }
