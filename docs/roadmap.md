@@ -14,7 +14,7 @@ Milestone 0 established the repository and public crate shape:
 - A `ChannelClient` trait for future transport implementations
 - CI for formatting, clippy, and tests
 
-The project has completed Milestone 4 with a bridge-facing normalized message contract for common inbound text, post, mention, unsupported, malformed-content, missing-content, and resource-bearing messages. Milestone 5 is in progress with rich-message, CardKit, card callback, low-level streaming, high-level Markdown streaming lifecycle and throttling helpers, and append-only long-content continuation. Media transfer remains Milestone 6 work.
+The project has completed Milestone 5 with rich-message helpers, CardKit creation and callbacks, low-level CardKit streaming, a high-level Markdown streaming lifecycle, update throttling, and append-only long-content continuation. Media transfer remains Milestone 6 work.
 
 ## Architecture Boundary
 
@@ -112,9 +112,9 @@ Milestone 4 starts from the minimal inbound message parser delivered in Mileston
 - Card creation and update helpers (#32)
 - Card callback response and update helpers (#33)
 - CardKit entity streaming models and low-level OpenAPI helpers (#34)
-- High-level Markdown streaming message and reply lifecycle
-- Update throttling for long-running agent output
-- Append-only, format-agnostic continuation for long Markdown
+- High-level Markdown streaming message and reply lifecycle (#35)
+- Update throttling for long-running agent output (#36)
+- Append-only, format-agnostic continuation for long Markdown (#37)
 
 ## Milestone 6: Media Helpers
 
