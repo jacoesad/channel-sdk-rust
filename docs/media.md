@@ -97,4 +97,13 @@ The public `ChannelClient::download_resource` contract follows the same
 memory-only boundary and returns `DownloadedResource`; applications decide
 whether and where to persist those bytes.
 
+### Migrating from v0.5
+
+In v0.6, `ChannelClient::download_resource` changed from
+`download_resource(resource, path) -> Result<()>` to
+`download_resource(resource) -> Result<DownloadedResource>`. Implementations
+must remove the destination path parameter and return the downloaded bytes
+together with optional response metadata. Applications now own filesystem
+policy and persist the returned bytes when needed.
+
 The SDK does not read or write local paths, fetch arbitrary URLs, transcode media, infer audio/video duration, or retry media transfers. Applications can read an approved path and pass the resulting bytes to `MediaUploader`. Audio must already be OPUS, and video must already be MP4; the high-level uploader checks the filename suffix while the platform validates the actual media bytes. A future path or URL source adapter must define explicit filesystem and SSRF policy before it is added.

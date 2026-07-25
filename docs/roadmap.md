@@ -14,7 +14,7 @@ Milestone 0 established the repository and public crate shape:
 - A `ChannelClient` trait for future transport implementations
 - CI for formatting, clippy, and tests
 
-The project has completed Milestone 5 with rich-message helpers, CardKit creation and callbacks, low-level CardKit streaming, a high-level Markdown streaming lifecycle, update throttling, and append-only long-content continuation. Milestone 6 is in progress with bounded in-memory message-resource downloads, image/file uploads, and outbound media messages.
+The project has completed Milestone 6 with bounded in-memory message-resource downloads, image/file uploads, and outbound media messages. Filesystem access, URL fetching, and pre-download MIME inference remain application policy rather than core SDK behavior.
 
 ## Architecture Boundary
 
@@ -118,14 +118,14 @@ Milestone 4 starts from the minimal inbound message parser delivered in Mileston
 
 ## Milestone 6: Media Helpers
 
-- Download message resources
-- Upload in-memory images, files, pre-encoded OPUS audio, and MP4 video through official image/file endpoints
-- Send and reply with uploaded image, file, audio, and video resource keys
-- Resource descriptors with filenames and MIME hints
-- Optional path and URL source adapters with explicit filesystem and SSRF policy
+- Download message resources into bounded in-memory buffers while preserving available HTTP response metadata (#39)
+- Upload in-memory images, files, pre-encoded OPUS audio, and MP4 video through official image/file endpoints (#40)
+- Send and reply with uploaded image, file, audio, and video resource keys (#41)
 
 ## Later Scope
 
+- Optional caller-supplied or inferred MIME hints for pre-download resource descriptors
+- Optional path and URL media source adapters with explicit filesystem and SSRF policy
 - Comment/document surfaces
 - Registration helpers
 - Topic-group specific behavior

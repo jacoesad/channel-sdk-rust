@@ -13,7 +13,7 @@ The first target is to support agent/bot bridges such as `lark-coding-agent-brid
 
 ## Status
 
-Experimental. The crate currently contains the public module skeleton, shared data types, an OpenAPI foundation for app and tenant access-token management, outbound text, native Markdown/post, and media messaging, CardKit 2.0 creation and update helpers, high-level Markdown streaming messages and replies with long-content continuation, idempotency options, an early WebSocket endpoint/connection foundation, inbound message and card action parsing, normalized inbound text/post/mention handling, message resource descriptors and bounded in-memory downloads/uploads, split-packet event reassembly, a single-connection event consumer, a reconnecting event loop with timer-driven heartbeat support, and a minimal echo bot example.
+Experimental. The crate currently provides shared data types, an OpenAPI foundation for app and tenant access-token management, outbound text, native Markdown/post, and media messaging, CardKit 2.0 creation and update helpers, high-level Markdown streaming messages and replies with long-content continuation, idempotency options, an early WebSocket endpoint/connection foundation, inbound message and card action parsing, normalized inbound text/post/mention handling, message resource descriptors and bounded in-memory downloads/uploads, split-packet event reassembly, a single-connection event consumer, a reconnecting event loop with timer-driven heartbeat support, and a minimal echo bot example.
 
 ## Planned Modules
 
@@ -30,7 +30,7 @@ Experimental. The crate currently contains the public module skeleton, shared da
 The repository is named `channel-sdk-rust` to match LarkSuite's official SDK naming style. The published Rust crate is `lark-channel`, and the Rust library target is `lark_channel`, so users can import it as:
 
 ```toml
-lark-channel = "0.5"
+lark-channel = "0.6"
 ```
 
 ```rust
@@ -79,6 +79,5 @@ let message_id = sender
 
 See [docs/roadmap.md](docs/roadmap.md) for the development plan.
 
-The next milestone is:
-
-6. Media helper APIs.
+Milestones 0 through 6 are complete. Potential follow-up work is tracked under
+[Later Scope](docs/roadmap.md#later-scope).
