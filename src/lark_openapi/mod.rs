@@ -15,7 +15,7 @@ mod media;
 mod message;
 mod response;
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;
 mod transport;
 mod ws;
 

@@ -14,7 +14,7 @@ Milestone 0 established the repository and public crate shape:
 - A `ChannelClient` trait for future transport implementations
 - CI for formatting, clippy, and tests
 
-The project has completed Milestone 5 with rich-message helpers, CardKit creation and callbacks, low-level CardKit streaming, a high-level Markdown streaming lifecycle, update throttling, and append-only long-content continuation. Media transfer remains Milestone 6 work.
+The project has completed Milestone 5 with rich-message helpers, CardKit creation and callbacks, low-level CardKit streaming, a high-level Markdown streaming lifecycle, update throttling, and append-only long-content continuation. Milestone 6 is in progress with bounded in-memory downloads for message resources.
 
 ## Architecture Boundary
 

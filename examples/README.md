@@ -166,9 +166,24 @@ The example starts a `ContinuingMarkdownStream` and applies its throttle interva
 
 Each continuation page is checked against both the 100,000-character element limit and 30 KiB whole-card limit before it is sent. The splitter prefers paragraph, line, and whitespace boundaries, never separates a UTF-8 character, and preserves the complete source text. It is intentionally format-agnostic: Markdown constructs and line-ending pairs may span pages, no syntax is rewritten, and each page renders independently.
 
+## Download a message resource
+
+`download_resource.rs` downloads an image or file resource already attached to a received message. It keeps the bytes in memory and prints only their length and response metadata.
+
+```bash
+export LARK_APP_ID=cli_xxx
+export LARK_APP_SECRET=xxx
+export LARK_MESSAGE_ID=om_xxx
+export LARK_RESOURCE_KEY=img_xxx
+export LARK_RESOURCE_TYPE=image
+cargo run --example download_resource
+```
+
+`LARK_RESOURCE_TYPE` accepts `image` or `file`. Use `file` for ordinary files, audio, and video. The bot must belong to the message conversation, and the resource must not exceed the platform's 100 MB limit. The example does not write the response to disk.
+
 ## WebSocket endpoint and connection
 
-`ws_connect.rs` requests the long-connection WebSocket endpoint. By default it prints redacted endpoint metadata only. Set `LARK_WS_CONNECT=1` to open the WebSocket connection and close it immediately. Add `LARK_WS_RECEIVE_ONCE=1` to wait for one event through `EventConsumer`, print parsed event metadata including resource descriptors, send an ACK, and close.
+`ws_connect.rs` requests the long-connection WebSocket endpoint. By default it prints redacted endpoint metadata only. Set `LARK_WS_CONNECT=1` to open the WebSocket connection and close it immediately. Add `LARK_WS_RECEIVE_ONCE=1` to wait for one event through `EventConsumer`, print parsed event metadata including each resource descriptor's OpenAPI message ID and resource key, send an ACK, and close. Those values can be passed to `download_resource.rs`.
 
 ```bash
 export LARK_APP_ID=cli_xxx

@@ -4,7 +4,7 @@ use crate::{Error, Result};
 
 use super::{HttpMethod, HttpRequest, OpenApiBinaryTransport, OpenApiClient};
 
-pub const MAX_MESSAGE_RESOURCE_BYTES: usize = 100 * 1024 * 1024;
+pub const MAX_MESSAGE_RESOURCE_BYTES: usize = 100_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageResourceType {
@@ -88,6 +88,11 @@ mod tests {
                 "expire": 7200
             }),
         )
+    }
+
+    #[test]
+    fn uses_the_platform_message_resource_limit() {
+        assert_eq!(MAX_MESSAGE_RESOURCE_BYTES, 100_000_000);
     }
 
     #[test]

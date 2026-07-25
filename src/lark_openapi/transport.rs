@@ -122,6 +122,7 @@ pub trait OpenApiBinaryTransport: OpenApiTransport {
 #[derive(Debug, Clone)]
 pub struct ReqwestOpenApiTransport {
     client: reqwest::Client,
+    binary_client: std::result::Result<reqwest::Client, String>,
 }
 
 #[cfg(feature = "reqwest-transport")]
@@ -129,11 +130,20 @@ impl ReqwestOpenApiTransport {
     pub fn new() -> Self {
         Self {
             client: reqwest::Client::new(),
+            binary_client: binary_client(),
         }
     }
 
+    /// Uses `client` for the existing JSON transport.
+    ///
+    /// Binary resource downloads use a dedicated client with redirects
+    /// disabled so the original OpenAPI status cannot be replaced by a
+    /// redirected response.
     pub fn with_client(client: reqwest::Client) -> Self {
-        Self { client }
+        Self {
+            client,
+            binary_client: binary_client(),
+        }
     }
 }
 
@@ -175,14 +185,18 @@ impl OpenApiBinaryTransport for ReqwestOpenApiTransport {
         request: HttpRequest,
         max_response_bytes: usize,
     ) -> BoxFuture<'static, Result<BinaryHttpResponse>> {
-        let client = self.client.clone();
+        let client = self.binary_client.clone();
 
         Box::pin(async move {
+            let client = client.map_err(Error::Transport)?;
             let mut response = reqwest_request(&client, request)
                 .send()
                 .await
                 .map_err(|error| Error::Transport(error.to_string()))?;
             let status = response.status().as_u16();
+            if let Some(response) = binary_response_for_error_status(status) {
+                return Ok(response);
+            }
             let headers = response
                 .headers()
                 .iter()
@@ -253,6 +267,14 @@ fn binary_response_too_large(max_response_bytes: usize) -> Error {
 }
 
 #[cfg(feature = "reqwest-transport")]
+fn binary_client() -> std::result::Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|error| format!("failed to build binary Reqwest client: {error}"))
+}
+
+#[cfg(feature = "reqwest-transport")]
 impl From<HttpMethod> for reqwest::Method {
     fn from(method: HttpMethod) -> Self {
         match method {
@@ -273,10 +295,21 @@ fn response_for_error_status(status: u16) -> Option<HttpResponse> {
     })
 }
 
+#[cfg(feature = "reqwest-transport")]
+fn binary_response_for_error_status(status: u16) -> Option<BinaryHttpResponse> {
+    (!(200..300).contains(&status)).then_some(BinaryHttpResponse::new(
+        status,
+        BTreeMap::new(),
+        Vec::new(),
+    ))
+}
+
 #[cfg(all(test, feature = "reqwest-transport"))]
 mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread;
 
     use serde_json::json;
@@ -383,6 +416,142 @@ mod tests {
         server.join().expect("test server joined");
 
         assert!(matches!(error, Error::Transport(message) if message.contains("3-byte limit")));
+    }
+
+    #[tokio::test]
+    async fn reqwest_rejects_chunked_binary_body_over_the_limit() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bound test server");
+        let address = listener.local_addr().expect("test server address");
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().expect("accepted request");
+            let mut request = [0_u8; 4096];
+            let _ = socket.read(&mut request).expect("read request");
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n2\r\nab\r\n2\r\ncd\r\n0\r\n\r\n",
+                )
+                .expect("write response");
+        });
+
+        let error = ReqwestOpenApiTransport::new()
+            .send_bytes(
+                HttpRequest::empty(
+                    HttpMethod::Get,
+                    Url::parse(&format!("http://{address}/binary")).expect("test URL"),
+                ),
+                3,
+            )
+            .await
+            .expect_err("oversized response");
+        server.join().expect("test server joined");
+
+        assert!(matches!(error, Error::Transport(message) if message.contains("3-byte limit")));
+    }
+
+    #[tokio::test]
+    async fn reqwest_preserves_binary_http_errors_before_body_limits() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bound test server");
+        let address = listener.local_addr().expect("test server address");
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().expect("accepted request");
+            let mut request = [0_u8; 4096];
+            let _ = socket.read(&mut request).expect("read request");
+            socket
+                .write_all(
+                    b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/html\r\nContent-Length: 1024\r\nConnection: close\r\n\r\n",
+                )
+                .expect("write response headers");
+        });
+
+        let response = ReqwestOpenApiTransport::new()
+            .send_bytes(
+                HttpRequest::empty(
+                    HttpMethod::Get,
+                    Url::parse(&format!("http://{address}/binary")).expect("test URL"),
+                ),
+                3,
+            )
+            .await
+            .expect("HTTP status response");
+        server.join().expect("test server joined");
+
+        assert_eq!(response.status, 503);
+        assert!(response.body.is_empty());
+    }
+
+    #[tokio::test]
+    async fn reqwest_binary_clients_do_not_follow_redirects() {
+        assert_binary_redirect_is_not_followed(ReqwestOpenApiTransport::new()).await;
+        assert_binary_redirect_is_not_followed(ReqwestOpenApiTransport::with_client(
+            reqwest::Client::new(),
+        ))
+        .await;
+    }
+
+    async fn assert_binary_redirect_is_not_followed(transport: ReqwestOpenApiTransport) {
+        let target_listener = TcpListener::bind("127.0.0.1:0").expect("bound redirect target");
+        target_listener
+            .set_nonblocking(true)
+            .expect("nonblocking redirect target");
+        let target_address = target_listener
+            .local_addr()
+            .expect("redirect target address");
+        let redirected = Arc::new(AtomicBool::new(false));
+        let target_done = Arc::new(AtomicBool::new(false));
+        let target_redirected = redirected.clone();
+        let target_stop = target_done.clone();
+        let target = thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+            while !target_stop.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
+                match target_listener.accept() {
+                    Ok((mut socket, _)) => {
+                        target_redirected.store(true, Ordering::Release);
+                        socket
+                            .write_all(
+                                b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nredirected",
+                            )
+                            .expect("write redirect target response");
+                        return;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::yield_now();
+                    }
+                    Err(error) => panic!("accept redirect target: {error}"),
+                }
+            }
+        });
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bound redirect server");
+        let address = listener.local_addr().expect("redirect server address");
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().expect("accepted request");
+            let mut request = [0_u8; 4096];
+            let _ = socket.read(&mut request).expect("read request");
+            let response = format!(
+                "HTTP/1.1 302 Found\r\nLocation: http://{target_address}/redirected\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            socket
+                .write_all(response.as_bytes())
+                .expect("write redirect response");
+        });
+
+        let response = transport
+            .send_bytes(
+                HttpRequest::empty(
+                    HttpMethod::Get,
+                    Url::parse(&format!("http://{address}/binary")).expect("test URL"),
+                ),
+                16,
+            )
+            .await
+            .expect("redirect status response");
+        server.join().expect("redirect server joined");
+        target_done.store(true, Ordering::Release);
+        target.join().expect("redirect target joined");
+
+        assert_eq!(response.status, 302);
+        assert!(response.body.is_empty());
+        assert!(!redirected.load(Ordering::Acquire));
     }
 
     async fn send_test_response(status: &str, content_type: &str, body: &str) -> HttpResponse {

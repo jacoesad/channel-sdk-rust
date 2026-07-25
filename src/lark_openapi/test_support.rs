@@ -14,12 +14,12 @@ use super::{
 };
 
 #[derive(Clone, Debug)]
-pub(super) struct FakeTransport {
+pub(crate) struct FakeTransport {
     state: Arc<Mutex<FakeState>>,
 }
 
 impl FakeTransport {
-    pub(super) fn new(responses: Vec<HttpResponse>) -> Self {
+    pub(crate) fn new(responses: Vec<HttpResponse>) -> Self {
         Self {
             state: Arc::new(Mutex::new(FakeState {
                 responses: responses.into(),
@@ -29,7 +29,7 @@ impl FakeTransport {
         }
     }
 
-    pub(super) fn with_binary_responses(
+    pub(crate) fn with_binary_responses(
         responses: Vec<HttpResponse>,
         binary_responses: Vec<BinaryHttpResponse>,
     ) -> Self {
@@ -42,7 +42,7 @@ impl FakeTransport {
         }
     }
 
-    pub(super) fn calls(&self) -> Vec<FakeCall> {
+    pub(crate) fn calls(&self) -> Vec<FakeCall> {
         self.state().calls.clone()
     }
 
@@ -109,15 +109,15 @@ struct FakeState {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct FakeCall {
-    pub(super) method: HttpMethod,
-    pub(super) url: Url,
-    pub(super) headers: BTreeMap<String, String>,
-    pub(super) body: Value,
-    pub(super) max_response_bytes: Option<usize>,
+pub(crate) struct FakeCall {
+    pub(crate) method: HttpMethod,
+    pub(crate) url: Url,
+    pub(crate) headers: BTreeMap<String, String>,
+    pub(crate) body: Value,
+    pub(crate) max_response_bytes: Option<usize>,
 }
 
-pub(super) fn block_on<F>(future: F) -> F::Output
+pub(crate) fn block_on<F>(future: F) -> F::Output
 where
     F: Future,
 {

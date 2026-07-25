@@ -68,7 +68,7 @@ Use `NormalizedMessage::mentions_bot(bot_open_id)` to decide whether a group mes
 - `sticker`: `file_key`
 - `post`: embedded `img` and `media` elements from `content` or `content_v2`
 
-These descriptors are metadata only. Download/upload helpers remain later media work, and some resource types have official platform limits; for example, folders and stickers expose keys but are not downloadable through the same file APIs.
+Use `MediaDownloader` to download supported descriptors into memory. Images map to the official `image` resource type; files, audio, and video map to `file`. Folder, sticker, and unknown descriptors are rejected before authentication because the official message-resource endpoint does not support them. See [media.md](media.md) for download behavior and remaining media scope.
 
 Card action callback payloads with event type `card.action.trigger` are parsed as `ChannelEvent::CardAction`. The current model exposes the operator ids, callback update token, action value, form/input/select values, host metadata, open message id, open chat id, and raw payload. `CardActionResponse` builds an immediate empty, Toast, or CardKit 2.0 card response and converts it into the Base64 JSON data required by a WebSocket ACK.
 
