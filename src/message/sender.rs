@@ -90,64 +90,6 @@ where
         self.post_message(recipient, PostContent::markdown(markdown))
     }
 
-    /// Starts building an image message from an uploaded image key.
-    pub fn image_message(
-        &self,
-        recipient: Recipient,
-        image_key: impl Into<String>,
-    ) -> MessageBuilder<'_, T> {
-        self.message(
-            recipient,
-            MessageContent::Image {
-                image_key: image_key.into(),
-            },
-        )
-    }
-
-    /// Starts building a file message from an uploaded file key.
-    pub fn file_message(
-        &self,
-        recipient: Recipient,
-        file_key: impl Into<String>,
-    ) -> MessageBuilder<'_, T> {
-        self.message(
-            recipient,
-            MessageContent::File {
-                file_key: file_key.into(),
-            },
-        )
-    }
-
-    /// Starts building an audio message from an uploaded OPUS file key.
-    pub fn audio_message(
-        &self,
-        recipient: Recipient,
-        file_key: impl Into<String>,
-    ) -> MessageBuilder<'_, T> {
-        self.message(
-            recipient,
-            MessageContent::Audio {
-                file_key: file_key.into(),
-            },
-        )
-    }
-
-    /// Starts building a video `media` message from an uploaded MP4 file key.
-    pub fn media_message(
-        &self,
-        recipient: Recipient,
-        file_key: impl Into<String>,
-        image_key: Option<String>,
-    ) -> MessageBuilder<'_, T> {
-        self.message(
-            recipient,
-            MessageContent::Media {
-                file_key: file_key.into(),
-                image_key,
-            },
-        )
-    }
-
     /// Starts building an inline CardKit message send operation.
     pub fn card_message(&self, recipient: Recipient, card: Card) -> MessageBuilder<'_, T> {
         self.message(
@@ -213,64 +155,6 @@ where
         markdown: impl Into<String>,
     ) -> MessageReplyBuilder<'_, T> {
         self.post_reply(parent_message_id, PostContent::markdown(markdown))
-    }
-
-    /// Starts building an image reply from an uploaded image key.
-    pub fn image_reply(
-        &self,
-        parent_message_id: MessageId,
-        image_key: impl Into<String>,
-    ) -> MessageReplyBuilder<'_, T> {
-        self.reply(
-            parent_message_id,
-            MessageContent::Image {
-                image_key: image_key.into(),
-            },
-        )
-    }
-
-    /// Starts building a file reply from an uploaded file key.
-    pub fn file_reply(
-        &self,
-        parent_message_id: MessageId,
-        file_key: impl Into<String>,
-    ) -> MessageReplyBuilder<'_, T> {
-        self.reply(
-            parent_message_id,
-            MessageContent::File {
-                file_key: file_key.into(),
-            },
-        )
-    }
-
-    /// Starts building an audio reply from an uploaded OPUS file key.
-    pub fn audio_reply(
-        &self,
-        parent_message_id: MessageId,
-        file_key: impl Into<String>,
-    ) -> MessageReplyBuilder<'_, T> {
-        self.reply(
-            parent_message_id,
-            MessageContent::Audio {
-                file_key: file_key.into(),
-            },
-        )
-    }
-
-    /// Starts building a video `media` reply from an uploaded MP4 file key.
-    pub fn media_reply(
-        &self,
-        parent_message_id: MessageId,
-        file_key: impl Into<String>,
-        image_key: Option<String>,
-    ) -> MessageReplyBuilder<'_, T> {
-        self.reply(
-            parent_message_id,
-            MessageContent::Media {
-                file_key: file_key.into(),
-                image_key,
-            },
-        )
     }
 
     /// Starts building an inline CardKit reply operation.
@@ -775,115 +659,6 @@ mod tests {
     }
 
     #[test]
-    fn media_message_helpers_use_official_content_types() {
-        let transport = FakeTransport::new(vec![
-            FakeResponse::http(
-                200,
-                json!({
-                    "code": 0,
-                    "msg": "ok",
-                    "tenant_access_token": "tenant-token-1",
-                    "expire": 7200
-                }),
-            ),
-            FakeResponse::message("om_image"),
-            FakeResponse::message("om_file"),
-            FakeResponse::message("om_audio"),
-            FakeResponse::message("om_media"),
-        ]);
-        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
-        let sender = MessageSender::new(client);
-        let recipient = Recipient::Chat("oc_123".to_owned());
-
-        block_on(sender.image_message(recipient.clone(), "img_123").send()).expect("sent image");
-        block_on(sender.file_message(recipient.clone(), "file_123").send()).expect("sent file");
-        block_on(sender.audio_message(recipient.clone(), "file_audio").send()).expect("sent audio");
-        block_on(
-            sender
-                .media_message(recipient, "file_video", Some("img_cover".to_owned()))
-                .send(),
-        )
-        .expect("sent media");
-
-        let calls = transport.calls();
-        let expected = [
-            ("image", json!({ "image_key": "img_123" })),
-            ("file", json!({ "file_key": "file_123" })),
-            ("audio", json!({ "file_key": "file_audio" })),
-            (
-                "media",
-                json!({ "file_key": "file_video", "image_key": "img_cover" }),
-            ),
-        ];
-        for (call, (expected_type, expected_content)) in calls[1..].iter().zip(expected) {
-            assert_eq!(call.body["msg_type"], expected_type);
-            assert_eq!(
-                serde_json::from_str::<Value>(
-                    call.body["content"].as_str().expect("content string")
-                )
-                .expect("content json"),
-                expected_content
-            );
-        }
-    }
-
-    #[test]
-    fn media_reply_helpers_use_official_content_types() {
-        let transport = FakeTransport::new(vec![
-            FakeResponse::http(
-                200,
-                json!({
-                    "code": 0,
-                    "msg": "ok",
-                    "tenant_access_token": "tenant-token-1",
-                    "expire": 7200
-                }),
-            ),
-            FakeResponse::message("om_image"),
-            FakeResponse::message("om_file"),
-            FakeResponse::message("om_audio"),
-            FakeResponse::message("om_media"),
-        ]);
-        let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
-        let sender = MessageSender::new(client);
-        let parent = MessageId("om_parent".to_owned());
-
-        block_on(sender.image_reply(parent.clone(), "img_123").send()).expect("replied image");
-        block_on(sender.file_reply(parent.clone(), "file_123").send()).expect("replied file");
-        block_on(sender.audio_reply(parent.clone(), "file_audio").send()).expect("replied audio");
-        block_on(
-            sender
-                .media_reply(parent, "file_video", None)
-                .reply_in_thread(true)
-                .send(),
-        )
-        .expect("replied media");
-
-        let calls = transport.calls();
-        let expected = [
-            ("image", json!({ "image_key": "img_123" })),
-            ("file", json!({ "file_key": "file_123" })),
-            ("audio", json!({ "file_key": "file_audio" })),
-            ("media", json!({ "file_key": "file_video" })),
-        ];
-        for (call, (expected_type, expected_content)) in calls[1..].iter().zip(expected) {
-            assert_eq!(
-                call.url.as_str(),
-                "https://open.feishu.cn/open-apis/im/v1/messages/om_parent/reply"
-            );
-            assert_eq!(call.body["msg_type"], expected_type);
-            assert_eq!(
-                serde_json::from_str::<Value>(
-                    call.body["content"].as_str().expect("content string")
-                )
-                .expect("content json"),
-                expected_content
-            );
-        }
-        assert_eq!(calls[4].body["reply_in_thread"], true);
-    }
-
-    #[test]
     fn card_message_uses_validated_interactive_content() {
         let transport = FakeTransport::new(vec![
             FakeResponse::http(
@@ -1327,17 +1102,6 @@ mod tests {
     impl FakeResponse {
         fn http(status: u16, body: Value) -> Self {
             Self::Http(HttpResponse::json(status, body))
-        }
-
-        fn message(message_id: &str) -> Self {
-            Self::http(
-                200,
-                json!({
-                    "code": 0,
-                    "msg": "ok",
-                    "data": { "message_id": message_id }
-                }),
-            )
         }
 
         fn transport_error(message: impl Into<String>) -> Self {
