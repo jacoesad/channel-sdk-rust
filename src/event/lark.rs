@@ -455,7 +455,7 @@ mod tests {
                             "user_id": "u_bot",
                             "union_id": "on_bot"
                         },
-                        "name": "Bot",
+                        "name": "MentionNameSecret",
                         "mentioned_type": "bot"
                     }]
                 }
@@ -463,6 +463,13 @@ mod tests {
         });
 
         let event = parse_lark_event_payload(payload.to_string().as_bytes()).expect("event");
+        let debug = format!("{event:?}");
+        assert!(debug.contains("text_chars: 24"));
+        assert!(debug.contains("mentions_len: 1"));
+        assert!(!debug.contains("@MentionNameSecret hello"));
+        assert!(!debug.contains("@_user_1"));
+        assert!(!debug.contains("ou_bot"));
+        assert!(!debug.contains("MentionNameSecret"));
         let ChannelEvent::Message(message) = event else {
             panic!("expected message event");
         };
@@ -476,7 +483,7 @@ mod tests {
         assert_eq!(message.sender.union_id.as_deref(), Some("on_sender"));
         assert_eq!(message.sender.sender_type, MessageSenderType::User);
         assert_eq!(message.message_type, "text");
-        assert_eq!(message.text, "@Bot hello");
+        assert_eq!(message.text, "@MentionNameSecret hello");
         assert_eq!(message.raw_content, "{\"text\":\"@_user_1 hello\"}");
         assert_eq!(
             message.content.as_ref().expect("content")["text"],
@@ -489,7 +496,10 @@ mod tests {
         assert_eq!(message.mentions[0].open_id, "ou_bot");
         assert_eq!(message.mentions[0].user_id.as_deref(), Some("u_bot"));
         assert_eq!(message.mentions[0].union_id.as_deref(), Some("on_bot"));
-        assert_eq!(message.mentions[0].name.as_deref(), Some("Bot"));
+        assert_eq!(
+            message.mentions[0].name.as_deref(),
+            Some("MentionNameSecret")
+        );
         assert_eq!(message.mentions[0].mentioned_type, MessageSenderType::Bot);
         assert!(message.mentions_bot("ou_bot"));
     }
@@ -570,6 +580,9 @@ mod tests {
         });
 
         let event = parse_lark_event_payload(payload.to_string().as_bytes()).expect("event");
+        let debug = format!("{event:?}");
+        assert!(debug.contains("resources_len: 1"));
+        assert!(!debug.contains("img_v2_1"));
         let ChannelEvent::Message(message) = event else {
             panic!("expected message event");
         };

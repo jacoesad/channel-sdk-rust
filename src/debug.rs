@@ -39,14 +39,12 @@ pub(crate) struct RedactedUrl<'a>(pub(crate) &'a Url);
 
 impl fmt::Debug for RedactedUrl<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut url = self.0.clone();
-        let _ = url.set_username("");
-        let _ = url.set_password(None);
-        if url.query().is_some() {
-            url.set_query(Some("<redacted>"));
-        }
-        url.set_fragment(None);
-        fmt::Debug::fmt(&url, formatter)
+        formatter
+            .debug_struct("Url")
+            .field("scheme", &self.0.scheme())
+            .field("host", &self.0.host_str())
+            .field("port", &self.0.port())
+            .finish()
     }
 }
 

@@ -224,7 +224,7 @@ impl fmt::Debug for MultipartPart {
             } => formatter
                 .debug_struct("File")
                 .field("name", name)
-                .field("file_name", file_name)
+                .field("file_name_chars", &file_name.chars().count())
                 .field("bytes_len", &bytes.len())
                 .finish(),
         }
@@ -547,7 +547,7 @@ mod debug_tests {
     fn debug_redacts_http_and_binary_payloads() {
         let request = HttpRequest::post_json(
             Url::parse(
-                "https://user:url-secret@open.feishu.cn/token?access_token=query-secret#fragment-secret",
+                "https://user:url-secret@open.feishu.cn/resources/path-secret?access_token=query-secret#fragment-secret",
             )
             .expect("test URL"),
             json!({"app_secret": "request-secret"}),
@@ -572,6 +572,7 @@ mod debug_tests {
         assert!(!debug.contains("response-secret"));
         assert!(!debug.contains("cookie-secret"));
         assert!(!debug.contains("url-secret"));
+        assert!(!debug.contains("path-secret"));
         assert!(!debug.contains("query-secret"));
         assert!(!debug.contains("fragment-secret"));
         assert!(!debug.contains("alias-secret"));
@@ -586,13 +587,15 @@ mod debug_tests {
         )
         .with_bearer_auth("bearer-secret")
         .text("metadata", "text-secret")
-        .file("file", "report.bin", vec![1, 2, 3, 4]);
+        .file("file", "private-report.bin", vec![1, 2, 3, 4]);
 
         let debug = format!("{request:?}");
         assert!(debug.contains("<redacted>"));
         assert!(debug.contains("bytes_len: 4"));
+        assert!(debug.contains("file_name_chars: 18"));
         assert!(!debug.contains("bearer-secret"));
         assert!(!debug.contains("text-secret"));
+        assert!(!debug.contains("private-report.bin"));
         assert!(!debug.contains("[1, 2, 3, 4]"));
     }
 }

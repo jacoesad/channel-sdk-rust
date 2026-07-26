@@ -146,7 +146,7 @@ pub struct MessageSenderInfo {
     pub sender_type: MessageSenderType,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MessageMention {
     #[serde(default)]
     pub key: String,
@@ -160,6 +160,20 @@ pub struct MessageMention {
     pub name: Option<String>,
     #[serde(default)]
     pub mentioned_type: MessageSenderType,
+}
+
+impl fmt::Debug for MessageMention {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MessageMention")
+            .field("has_key", &!self.key.is_empty())
+            .field("has_open_id", &!self.open_id.is_empty())
+            .field("has_user_id", &self.user_id.is_some())
+            .field("has_union_id", &self.union_id.is_some())
+            .field("has_name", &self.name.is_some())
+            .field("mentioned_type", &self.mentioned_type)
+            .finish()
+    }
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -203,14 +217,14 @@ impl fmt::Debug for NormalizedMessage {
             .field("sender_id", &self.sender_id)
             .field("sender", &self.sender)
             .field("message_type", &self.message_type)
-            .field("text", &self.text)
+            .field("text_chars", &self.text.chars().count())
             .field("raw_content_chars", &self.raw_content.chars().count())
             .field("content", &OptionalJsonSummary(&self.content))
             .field("root_id", &self.root_id)
             .field("parent_id", &self.parent_id)
             .field("thread_id", &self.thread_id)
-            .field("mentions", &self.mentions)
-            .field("resources", &self.resources)
+            .field("mentions_len", &self.mentions.len())
+            .field("resources_len", &self.resources.len())
             .field("raw", &JsonSummary(&self.raw))
             .finish()
     }
@@ -278,6 +292,35 @@ mod tests {
         assert!(debug.contains("Object"));
         assert!(!debug.contains("message-secret"));
         assert!(!debug.contains("custom-secret"));
+    }
+
+    #[test]
+    fn message_mention_debug_summarizes_identity_fields() {
+        let mention = MessageMention {
+            key: "mention-key-secret".to_owned(),
+            open_id: "open-id-secret".to_owned(),
+            user_id: Some("user-id-secret".to_owned()),
+            union_id: Some("union-id-secret".to_owned()),
+            name: Some("mention-name-secret".to_owned()),
+            mentioned_type: MessageSenderType::Bot,
+        };
+
+        let debug = format!("{mention:?}");
+        assert!(debug.contains("has_key: true"));
+        assert!(debug.contains("has_open_id: true"));
+        assert!(debug.contains("has_user_id: true"));
+        assert!(debug.contains("has_union_id: true"));
+        assert!(debug.contains("has_name: true"));
+        assert!(debug.contains("mentioned_type: Bot"));
+        for secret in [
+            "mention-key-secret",
+            "open-id-secret",
+            "user-id-secret",
+            "union-id-secret",
+            "mention-name-secret",
+        ] {
+            assert!(!debug.contains(secret));
+        }
     }
 
     #[test]
