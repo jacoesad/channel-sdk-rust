@@ -253,22 +253,22 @@ fn validate_response_key(key: String, field: &str) -> Result<String> {
     Ok(key)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct ImageCreateResponse {
     data: ImageCreateResponseData,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct ImageCreateResponseData {
     image_key: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct FileCreateResponse {
     data: FileCreateResponseData,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct FileCreateResponseData {
     file_key: String,
 }

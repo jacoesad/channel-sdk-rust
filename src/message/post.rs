@@ -315,9 +315,9 @@ impl fmt::Debug for PostElement {
                 .field("href", &crate::debug::Redacted)
                 .field("style", style)
                 .finish(),
-            PostElementKind::Mention { user_id, style } => formatter
+            PostElementKind::Mention { style, .. } => formatter
                 .debug_struct("Mention")
-                .field("user_id", user_id)
+                .field("user_id", &crate::debug::Redacted)
                 .field("style", style)
                 .finish(),
             PostElementKind::Markdown { text } => formatter
@@ -501,15 +501,16 @@ mod tests {
             "https://user:url-secret@example.com/path?token=query-secret#fragment-secret",
         )
         .expect("link");
+        let mention = PostElement::mention("mention-secret").expect("mention");
         let document = PostDocument::new()
             .with_title("title-secret")
-            .paragraph([element.clone()]);
+            .paragraph([element.clone(), mention.clone()]);
         let builder = PostContent::builder()
             .title("builder-secret")
-            .paragraph([element.clone()]);
+            .paragraph([element.clone(), mention.clone()]);
         let content = PostContent::new(document.clone()).expect("post content");
 
-        let debug = format!("{element:?} {document:?} {builder:?} {content:?}");
+        let debug = format!("{element:?} {mention:?} {document:?} {builder:?} {content:?}");
 
         assert!(debug.contains("locales_len: 1"));
         assert!(debug.contains("paragraphs_len: 1"));
@@ -519,6 +520,7 @@ mod tests {
             "url-secret",
             "query-secret",
             "fragment-secret",
+            "mention-secret",
             "title-secret",
             "builder-secret",
         ] {
