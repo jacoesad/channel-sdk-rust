@@ -220,18 +220,18 @@ impl CardUpdateOptions {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct UpdateMessageCardRequest {
     content: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct CallbackCardUpdateRequest<'a> {
     token: &'a str,
     card: &'a Card,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct CardEntityPayload {
     r#type: &'static str,
     data: String,
@@ -246,7 +246,7 @@ impl CardEntityPayload {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct UpdateCardEntityRequest {
     card: CardEntityPayload,
     sequence: u32,
@@ -254,7 +254,7 @@ struct UpdateCardEntityRequest {
     uuid: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct UpdateCardSettingsRequest {
     settings: String,
     sequence: u32,
@@ -262,7 +262,7 @@ struct UpdateCardSettingsRequest {
     uuid: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct UpdateCardElementContentRequest<'a> {
     content: &'a str,
     sequence: u32,

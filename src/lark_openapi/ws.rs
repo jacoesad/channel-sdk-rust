@@ -8,6 +8,7 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+use crate::debug::{Redacted, RedactedUrl};
 use crate::{ChannelConfig, Error, Result};
 
 use super::{OpenApiClient, OpenApiTransport};
@@ -41,12 +42,24 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct WebSocketEndpoint {
     url: Url,
     device_id: String,
     service_id: i32,
     client_config: Option<WebSocketClientConfig>,
+}
+
+impl fmt::Debug for WebSocketEndpoint {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("WebSocketEndpoint")
+            .field("url", &RedactedUrl(&self.url))
+            .field("device_id", &Redacted)
+            .field("service_id", &self.service_id)
+            .field("client_config", &self.client_config)
+            .finish()
+    }
 }
 
 impl WebSocketEndpoint {
@@ -128,12 +141,12 @@ impl<'a> WebSocketEndpointRequest<'a> {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct WebSocketEndpointResponse {
     data: WebSocketEndpointPayload,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct WebSocketEndpointPayload {
     #[serde(rename = "URL")]
     url: String,
@@ -189,12 +202,23 @@ impl WebSocketMessageType {
 }
 
 #[cfg_attr(feature = "websocket", derive(::prost::Message))]
+#[cfg_attr(feature = "websocket", prost(skip_debug))]
 #[derive(Clone, PartialEq)]
 pub struct WebSocketHeader {
     #[cfg_attr(feature = "websocket", prost(string, tag = "1"))]
     pub key: String,
     #[cfg_attr(feature = "websocket", prost(string, tag = "2"))]
     pub value: String,
+}
+
+impl fmt::Debug for WebSocketHeader {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("WebSocketHeader")
+            .field("key", &self.key)
+            .field("value", &Redacted)
+            .finish()
+    }
 }
 
 impl WebSocketHeader {
@@ -207,6 +231,7 @@ impl WebSocketHeader {
 }
 
 #[cfg_attr(feature = "websocket", derive(::prost::Message))]
+#[cfg_attr(feature = "websocket", prost(skip_debug))]
 #[derive(Clone, PartialEq)]
 pub struct WebSocketFrame {
     #[cfg_attr(feature = "websocket", prost(uint64, tag = "1"))]
@@ -227,6 +252,26 @@ pub struct WebSocketFrame {
     pub payload: Option<Vec<u8>>,
     #[cfg_attr(feature = "websocket", prost(string, optional, tag = "9"))]
     pub log_id_new: Option<String>,
+}
+
+impl fmt::Debug for WebSocketFrame {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("WebSocketFrame")
+            .field("seq_id", &self.seq_id)
+            .field("log_id", &self.log_id)
+            .field("service", &self.service)
+            .field("method", &self.method)
+            .field("headers", &self.headers)
+            .field("payload_encoding", &self.payload_encoding)
+            .field("payload_type", &self.payload_type)
+            .field(
+                "payload_bytes",
+                &self.payload.as_ref().map(std::vec::Vec::len),
+            )
+            .field("log_id_new", &self.log_id_new)
+            .finish()
+    }
 }
 
 impl WebSocketFrame {
@@ -505,11 +550,22 @@ impl WebSocketEvent {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct WebSocketEventAck {
     code: u16,
     data: Option<String>,
     biz_rt: Option<u64>,
+}
+
+impl fmt::Debug for WebSocketEventAck {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("WebSocketEventAck")
+            .field("code", &self.code)
+            .field("data_bytes", &self.data.as_ref().map(String::len))
+            .field("biz_rt", &self.biz_rt)
+            .finish()
+    }
 }
 
 impl WebSocketEventAck {
@@ -876,6 +932,9 @@ mod tests {
             })
         );
         assert_eq!(endpoint.ping_interval(), Some(Duration::from_secs(30)));
+        let debug = format!("{endpoint:?}");
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("device&"));
 
         let calls = transport.calls();
         assert_eq!(calls.len(), 1);
@@ -955,6 +1014,10 @@ mod tests {
             frame.event_payload(),
             Some(br#"{"schema":"2.0"}"#.as_slice())
         );
+        let debug = format!("{frame:?}");
+        assert!(debug.contains("payload_bytes: Some(16)"));
+        assert!(!debug.contains(r#"{"schema":"2.0"}"#));
+        assert!(!debug.contains("\"om_1\""));
     }
 
     #[test]
@@ -1169,6 +1232,9 @@ mod tests {
             .expect("json ack");
 
         assert_eq!(ack.data(), Some("eyJvayI6dHJ1ZX0="));
+        let debug = format!("{ack:?}");
+        assert!(debug.contains("data_bytes: Some(16)"));
+        assert!(!debug.contains("eyJvayI6dHJ1ZX0="));
     }
 
     #[test]

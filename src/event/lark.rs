@@ -784,6 +784,11 @@ mod tests {
         });
 
         let event = parse_lark_event_payload(payload.to_string().as_bytes()).expect("event");
+        let debug = format!("{event:?}");
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("card_update_token"));
+        assert!(!debug.contains("preview_1"));
+        assert!(!debug.contains("ticket_1"));
         let ChannelEvent::CardAction(card_action) = event else {
             panic!("expected card action event");
         };

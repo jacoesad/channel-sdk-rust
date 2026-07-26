@@ -1,7 +1,10 @@
+use std::fmt;
+
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use serde_json::{Map, Value, json};
 use url::Url;
 
+use crate::debug::JsonSummary;
 use crate::{Error, Result};
 
 use super::{Card, CardStreamingConfig, validate_element_id};
@@ -29,8 +32,17 @@ impl CardButtonStyle {
 ///
 /// Constructors cover common Channel workflows. [`CardElement::raw`] is an
 /// escape hatch for official CardKit components not modeled here yet.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct CardElement(Value);
+
+impl fmt::Debug for CardElement {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_tuple("CardElement")
+            .field(&JsonSummary(&self.0))
+            .finish()
+    }
+}
 
 impl CardElement {
     /// Creates a native CardKit Markdown component.
@@ -175,13 +187,38 @@ impl<'de> Deserialize<'de> for CardElement {
 }
 
 /// Fluent builder for a CardKit 2.0 card.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CardBuilder {
     config: Map<String, Value>,
     header_title: Option<String>,
     header_subtitle: Option<String>,
     header_template: Option<String>,
     elements: Vec<Value>,
+}
+
+impl fmt::Debug for CardBuilder {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CardBuilder")
+            .field("config_fields", &self.config.len())
+            .field(
+                "header_title_chars",
+                &self
+                    .header_title
+                    .as_ref()
+                    .map(|title| title.chars().count()),
+            )
+            .field(
+                "header_subtitle_chars",
+                &self
+                    .header_subtitle
+                    .as_ref()
+                    .map(|subtitle| subtitle.chars().count()),
+            )
+            .field("header_template", &self.header_template)
+            .field("elements_len", &self.elements.len())
+            .finish()
+    }
 }
 
 impl Default for CardBuilder {

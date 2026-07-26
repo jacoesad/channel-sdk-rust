@@ -9,7 +9,7 @@ use url::Url;
 #[cfg(feature = "reqwest-transport")]
 use crate::Error;
 use crate::Result;
-use crate::debug::{Redacted, RedactedHeaders};
+use crate::debug::{Redacted, RedactedHeaders, RedactedUrl};
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -35,7 +35,7 @@ impl fmt::Debug for HttpRequest {
         formatter
             .debug_struct("HttpRequest")
             .field("method", &self.method)
-            .field("url", &self.url)
+            .field("url", &RedactedUrl(&self.url))
             .field("headers", &RedactedHeaders(&self.headers))
             .field("body", &Redacted)
             .finish()
@@ -148,7 +148,7 @@ impl fmt::Debug for MultipartRequest {
         formatter
             .debug_struct("MultipartRequest")
             .field("method", &self.method)
-            .field("url", &self.url)
+            .field("url", &RedactedUrl(&self.url))
             .field("headers", &RedactedHeaders(&self.headers))
             .field("parts", &self.parts)
             .finish()
@@ -260,10 +260,19 @@ pub trait OpenApiMultipartTransport: OpenApiTransport {
 }
 
 #[cfg(feature = "reqwest-transport")]
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ReqwestOpenApiTransport {
     client: reqwest::Client,
     binary_client: std::result::Result<reqwest::Client, String>,
+}
+
+#[cfg(feature = "reqwest-transport")]
+impl fmt::Debug for ReqwestOpenApiTransport {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ReqwestOpenApiTransport")
+            .finish_non_exhaustive()
+    }
 }
 
 #[cfg(feature = "reqwest-transport")]
@@ -536,10 +545,17 @@ mod debug_tests {
     #[test]
     fn debug_redacts_http_and_binary_payloads() {
         let request = HttpRequest::post_json(
-            Url::parse("https://open.feishu.cn/token").expect("test URL"),
+            Url::parse(
+                "https://user:url-secret@open.feishu.cn/token?access_token=query-secret#fragment-secret",
+            )
+            .expect("test URL"),
             json!({"app_secret": "request-secret"}),
         )
         .with_bearer_auth("bearer-secret");
+        let mut request = request;
+        request
+            .headers
+            .insert("x-auth-token".to_owned(), "alias-secret".to_owned());
         let response = HttpResponse::json(200, json!({"access_token": "response-secret"}));
         let binary = BinaryHttpResponse::new(
             200,
@@ -554,6 +570,10 @@ mod debug_tests {
         assert!(!debug.contains("bearer-secret"));
         assert!(!debug.contains("response-secret"));
         assert!(!debug.contains("cookie-secret"));
+        assert!(!debug.contains("url-secret"));
+        assert!(!debug.contains("query-secret"));
+        assert!(!debug.contains("fragment-secret"));
+        assert!(!debug.contains("alias-secret"));
         assert!(!debug.contains("[1, 2, 3, 4]"));
     }
 
