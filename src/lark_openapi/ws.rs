@@ -866,9 +866,7 @@ fn parse_websocket_url(url: &Url) -> Result<(String, i32)> {
     let service_id_value = query_value(url, SERVICE_ID_QUERY)
         .ok_or_else(|| Error::Validation("websocket endpoint is missing service_id".to_owned()))?;
     let service_id = service_id_value.parse::<i32>().map_err(|_| {
-        Error::Validation(format!(
-            "websocket endpoint service_id must be an integer, got {service_id_value}"
-        ))
+        Error::Validation("websocket endpoint service_id must be an integer".to_owned())
     })?;
     Ok((device_id, service_id))
 }
@@ -877,7 +875,7 @@ fn parse_required_u32_header(frame: &WebSocketFrame, key: &str) -> Result<u32> {
     let value = frame.required_header(key)?;
     value.parse::<u32>().map_err(|_| {
         Error::Validation(format!(
-            "websocket event frame header {key} must be an unsigned integer, got {value}"
+            "websocket event frame header {key} must be an unsigned integer"
         ))
     })
 }
@@ -981,13 +979,16 @@ mod tests {
     #[test]
     fn websocket_endpoint_rejects_invalid_service_id() {
         let url =
-            Url::parse("wss://example.test/callback?device_id=device&service_id=abc").expect("url");
+            Url::parse("wss://example.test/callback?device_id=device&service_id=query-secret")
+                .expect("url");
 
         let error = WebSocketEndpoint::new(url, None).expect_err("invalid service id");
+        let rendered = format!("{error:?} {error}");
 
         assert!(
-            matches!(error, Error::Validation(message) if message.contains("must be an integer"))
+            matches!(&error, Error::Validation(message) if message.contains("must be an integer"))
         );
+        assert!(!rendered.contains("query-secret"));
     }
 
     #[test]
@@ -1143,17 +1144,19 @@ mod tests {
                 WebSocketHeader::new("type", "event"),
                 WebSocketHeader::new("message_id", "om_1"),
                 WebSocketHeader::new("trace_id", "trace_1"),
-                WebSocketHeader::new("sum", "not-a-number"),
+                WebSocketHeader::new("sum", "header-secret"),
                 WebSocketHeader::new("seq", "1"),
             ],
             ..event_frame()
         };
 
         let error = frame.event().expect_err("invalid sum");
+        let rendered = format!("{error:?} {error}");
 
         assert!(
-            matches!(error, Error::Validation(message) if message.contains("sum") && message.contains("integer"))
+            matches!(&error, Error::Validation(message) if message.contains("sum") && message.contains("integer"))
         );
+        assert!(!rendered.contains("header-secret"));
     }
 
     #[test]

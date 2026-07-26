@@ -872,6 +872,30 @@ mod tests {
     }
 
     #[test]
+    fn card_action_parse_errors_do_not_render_raw_values() {
+        let payload = json!({
+            "schema": "2.0",
+            "header": {
+                "event_id": "event_card_secret",
+                "event_type": "card.action.trigger"
+            },
+            "event": {
+                "action": {
+                    "value": {},
+                    "checked": "body-secret"
+                }
+            }
+        });
+
+        let error = parse_lark_event_payload(payload.to_string().as_bytes())
+            .expect_err("invalid checked value should fail");
+        let rendered = format!("{error:?} {error}");
+
+        assert!(matches!(error, Error::Serde(_)));
+        assert!(!rendered.contains("body-secret"));
+    }
+
+    #[test]
     fn card_action_requires_event_body() {
         let payload = json!({
             "schema": "2.0",
