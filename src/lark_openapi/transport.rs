@@ -334,7 +334,7 @@ impl OpenApiTransport for ReqwestOpenApiTransport {
             let response = reqwest_request(&client, request)
                 .send()
                 .await
-                .map_err(|error| Error::Transport(error.to_string()))?;
+                .map_err(reqwest_transport_error)?;
             let status = response.status().as_u16();
             if let Some(response) = response_for_error_status(status) {
                 return Ok(response);
@@ -342,7 +342,7 @@ impl OpenApiTransport for ReqwestOpenApiTransport {
             let body = response
                 .json::<Value>()
                 .await
-                .map_err(|error| Error::Transport(error.to_string()))?;
+                .map_err(reqwest_transport_error)?;
 
             Ok(HttpResponse { status, body })
         })
@@ -363,7 +363,7 @@ impl OpenApiBinaryTransport for ReqwestOpenApiTransport {
             let mut response = reqwest_request(&client, request)
                 .send()
                 .await
-                .map_err(|error| Error::Transport(error.to_string()))?;
+                .map_err(reqwest_transport_error)?;
             let status = response.status().as_u16();
             if let Some(response) = binary_response_for_error_status(status) {
                 return Ok(response);
@@ -387,11 +387,7 @@ impl OpenApiBinaryTransport for ReqwestOpenApiTransport {
             }
 
             let mut body = Vec::new();
-            while let Some(chunk) = response
-                .chunk()
-                .await
-                .map_err(|error| Error::Transport(error.to_string()))?
-            {
+            while let Some(chunk) = response.chunk().await.map_err(reqwest_transport_error)? {
                 let next_length = body
                     .len()
                     .checked_add(chunk.len())
@@ -450,7 +446,7 @@ impl OpenApiMultipartTransport for ReqwestOpenApiTransport {
                 .multipart(form)
                 .send()
                 .await
-                .map_err(|error| Error::Transport(error.to_string()))?;
+                .map_err(reqwest_transport_error)?;
             let status = response.status().as_u16();
             if let Some(response) = response_for_error_status(status) {
                 return Ok(response);
@@ -458,7 +454,7 @@ impl OpenApiMultipartTransport for ReqwestOpenApiTransport {
             let body = response
                 .json::<Value>()
                 .await
-                .map_err(|error| Error::Transport(error.to_string()))?;
+                .map_err(reqwest_transport_error)?;
 
             Ok(HttpResponse { status, body })
         })
@@ -489,6 +485,11 @@ fn binary_response_too_large(max_response_bytes: usize) -> Error {
     Error::Transport(format!(
         "binary response exceeds the {max_response_bytes}-byte limit"
     ))
+}
+
+#[cfg(feature = "reqwest-transport")]
+fn reqwest_transport_error(error: reqwest::Error) -> Error {
+    Error::Transport(error.without_url().to_string())
 }
 
 #[cfg(feature = "reqwest-transport")]
@@ -603,10 +604,42 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use std::time::Duration;
 
     use serde_json::json;
 
     use super::*;
+
+    #[tokio::test]
+    async fn reqwest_errors_strip_request_urls() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind test socket");
+        let address = listener.local_addr().expect("test address");
+        drop(listener);
+
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(1))
+            .build()
+            .expect("test client");
+        let request = HttpRequest::empty(
+            HttpMethod::Get,
+            Url::parse(&format!(
+                "http://user:url-secret@{address}/resource?token=query-secret#fragment-secret"
+            ))
+            .expect("test URL"),
+        );
+
+        let error = ReqwestOpenApiTransport::with_client(client)
+            .send_json(request)
+            .await
+            .expect_err("closed test socket should reject the connection");
+        let rendered = format!("{error:?} {error}");
+
+        assert!(rendered.contains("transport error"));
+        assert!(!rendered.contains("url-secret"));
+        assert!(!rendered.contains("query-secret"));
+        assert!(!rendered.contains("fragment-secret"));
+    }
     use crate::Error;
     use crate::lark_openapi::response::parse_openapi_response;
 

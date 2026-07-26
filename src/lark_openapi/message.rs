@@ -174,7 +174,6 @@ impl TryFrom<Recipient> for CreateMessageRecipient {
     }
 }
 
-#[derive(Debug)]
 struct OpenApiMessageContent {
     msg_type: String,
     content: Value,

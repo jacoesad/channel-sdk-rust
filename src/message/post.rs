@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use url::Url;
@@ -12,10 +13,19 @@ const ENGLISH_POST_LOCALE: &str = "en_us";
 ///
 /// The serialized shape is a locale map such as
 /// `{ "zh_cn": { "title": "", "content": [[...]] } }`.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 #[serde(transparent)]
 pub struct PostContent {
     locales: BTreeMap<String, PostDocument>,
+}
+
+impl fmt::Debug for PostContent {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PostContent")
+            .field("locales_len", &self.locales.len())
+            .finish()
+    }
 }
 
 impl<'de> Deserialize<'de> for PostContent {
@@ -103,11 +113,25 @@ impl PostContent {
 }
 
 /// One localized rich-text document inside a `post` message.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PostDocument {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     title: String,
     content: Vec<Vec<PostElement>>,
+}
+
+impl fmt::Debug for PostDocument {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PostDocument")
+            .field("title_chars", &self.title.chars().count())
+            .field("paragraphs_len", &self.content.len())
+            .field(
+                "elements_len",
+                &self.content.iter().map(Vec::len).sum::<usize>(),
+            )
+            .finish()
+    }
 }
 
 impl PostDocument {
@@ -154,10 +178,20 @@ impl PostDocument {
 }
 
 /// Builder for a single-locale rich-text `post` message.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PostContentBuilder {
     locale: String,
     document: PostDocument,
+}
+
+impl fmt::Debug for PostContentBuilder {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PostContentBuilder")
+            .field("locale", &self.locale)
+            .field("document", &self.document)
+            .finish()
+    }
 }
 
 impl Default for PostContentBuilder {
@@ -215,7 +249,7 @@ impl PostContentBuilder {
 ///
 /// Use `MessageContent::Custom` for official post elements that are not yet
 /// modeled by these Channel helpers.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 #[serde(transparent)]
 pub struct PostElement(PostElementKind);
 
@@ -230,7 +264,7 @@ impl<'de> Deserialize<'de> for PostElement {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "tag", deny_unknown_fields)]
 enum PostElementKind {
     #[serde(rename = "text")]
@@ -260,6 +294,38 @@ enum PostElementKind {
     },
     #[serde(rename = "md")]
     Markdown { text: String },
+}
+
+impl fmt::Debug for PostElement {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.0 {
+            PostElementKind::Text {
+                text,
+                un_escape,
+                style,
+            } => formatter
+                .debug_struct("Text")
+                .field("chars", &text.chars().count())
+                .field("un_escape", un_escape)
+                .field("style", style)
+                .finish(),
+            PostElementKind::Link { text, style, .. } => formatter
+                .debug_struct("Link")
+                .field("text_chars", &text.chars().count())
+                .field("href", &crate::debug::Redacted)
+                .field("style", style)
+                .finish(),
+            PostElementKind::Mention { user_id, style } => formatter
+                .debug_struct("Mention")
+                .field("user_id", user_id)
+                .field("style", style)
+                .finish(),
+            PostElementKind::Markdown { text } => formatter
+                .debug_struct("Markdown")
+                .field("chars", &text.chars().count())
+                .finish(),
+        }
+    }
 }
 
 impl PostElement {
@@ -427,6 +493,38 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn debug_summarizes_every_public_post_wrapper() {
+        let element = PostElement::link(
+            "link-secret",
+            "https://user:url-secret@example.com/path?token=query-secret#fragment-secret",
+        )
+        .expect("link");
+        let document = PostDocument::new()
+            .with_title("title-secret")
+            .paragraph([element.clone()]);
+        let builder = PostContent::builder()
+            .title("builder-secret")
+            .paragraph([element.clone()]);
+        let content = PostContent::new(document.clone()).expect("post content");
+
+        let debug = format!("{element:?} {document:?} {builder:?} {content:?}");
+
+        assert!(debug.contains("locales_len: 1"));
+        assert!(debug.contains("paragraphs_len: 1"));
+        assert!(debug.contains("<redacted>"));
+        for secret in [
+            "link-secret",
+            "url-secret",
+            "query-secret",
+            "fragment-secret",
+            "title-secret",
+            "builder-secret",
+        ] {
+            assert!(!debug.contains(secret));
+        }
+    }
 
     #[test]
     fn markdown_uses_native_md_post_shape() {
