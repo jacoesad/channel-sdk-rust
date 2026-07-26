@@ -181,6 +181,7 @@ For received messages, resource descriptors are derived from the official receiv
 - successful binary bodies are returned as `DownloadedResource`
 - `Content-Type` and `Content-Disposition` are preserved when present
 - the default Reqwest binary transport stops reading above the official 100 MB resource limit
+- `ReqwestOpenApiTransport::with_client_builders` applies caller networking policy to both regular and binary requests while still disabling redirects for downloads
 
 `OpenApiMultipartTransport` and `OpenApiBinaryTransport` are separate capabilities from `OpenApiTransport`, so custom JSON-only transports remain source-compatible. The current APIs buffer one bounded resource in memory. They do not read or write local paths, fetch arbitrary URLs, download folders or stickers, or retry media transfers.
 

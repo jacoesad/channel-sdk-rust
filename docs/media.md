@@ -93,4 +93,8 @@ println!("downloaded {} bytes", resource.len());
 
 `DownloadedResource` contains the complete in-memory bytes and optional `Content-Type` and `Content-Disposition` response metadata. The Reqwest transport enforces the platform's 100 MB per-resource limit while reading the response. Callers should release large byte buffers promptly.
 
+The public `ChannelClient::download_resource` contract follows the same
+memory-only boundary and returns `DownloadedResource`; applications decide
+whether and where to persist those bytes.
+
 The SDK does not read or write local paths, fetch arbitrary URLs, transcode media, infer audio/video duration, or retry media transfers. Applications can read an approved path and pass the resulting bytes to `MediaUploader`. Audio must already be OPUS, and video must already be MP4; the high-level uploader checks the filename suffix while the platform validates the actual media bytes. A future path or URL source adapter must define explicit filesystem and SSRF policy before it is added.
