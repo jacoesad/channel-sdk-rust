@@ -170,7 +170,9 @@ pub trait OpenApiTransport: Clone + Send + Sync + 'static {
 ///
 /// This is separate from [`OpenApiTransport`] so existing custom JSON
 /// transports do not need to implement binary downloads. Implementations must
-/// stop reading and return an error when the response body exceeds
+/// preserve a non-success HTTP status without buffering its response body or
+/// applying `max_response_bytes`. For successful responses, they must stop
+/// reading and return an error when the response body exceeds
 /// `max_response_bytes`.
 pub trait OpenApiBinaryTransport: OpenApiTransport {
     fn send_bytes(

@@ -114,6 +114,13 @@ impl OpenApiBinaryTransport for FakeTransport {
         };
 
         Box::pin(async move {
+            if !(200..300).contains(&response.status) {
+                return Ok(BinaryHttpResponse::new(
+                    response.status,
+                    BTreeMap::new(),
+                    Vec::new(),
+                ));
+            }
             if response.body.len() > max_response_bytes {
                 return Err(Error::Transport(format!(
                     "binary response exceeds the {max_response_bytes}-byte limit"
@@ -191,4 +198,33 @@ fn noop_raw_waker() -> RawWaker {
         std::ptr::null(),
         &RawWakerVTable::new(clone, wake, wake_by_ref, drop),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn binary_transport_preserves_error_status_before_body_limits() {
+        let transport = FakeTransport::with_binary_responses(
+            Vec::new(),
+            vec![BinaryHttpResponse::new(
+                503,
+                BTreeMap::new(),
+                b"error body".to_vec(),
+            )],
+        );
+
+        let response = block_on(transport.send_bytes(
+            HttpRequest::empty(
+                HttpMethod::Get,
+                Url::parse("https://open.feishu.cn/error").expect("test URL"),
+            ),
+            3,
+        ))
+        .expect("HTTP status response");
+
+        assert_eq!(response.status, 503);
+        assert!(response.body.is_empty());
+    }
 }
