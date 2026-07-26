@@ -1,3 +1,5 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 mod downloader;
@@ -35,11 +37,22 @@ pub struct ResourceDescriptor {
 }
 
 /// In-memory resource downloaded from a Lark/Feishu message.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct DownloadedResource {
     pub bytes: Vec<u8>,
     pub content_type: Option<String>,
     pub content_disposition: Option<String>,
+}
+
+impl fmt::Debug for DownloadedResource {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DownloadedResource")
+            .field("bytes_len", &self.bytes.len())
+            .field("content_type", &self.content_type)
+            .field("content_disposition", &self.content_disposition)
+            .finish()
+    }
 }
 
 impl DownloadedResource {
@@ -49,5 +62,24 @@ impl DownloadedResource {
 
     pub fn is_empty(&self) -> bool {
         self.bytes.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_summarizes_downloaded_bytes() {
+        let resource = DownloadedResource {
+            bytes: vec![1, 2, 3, 4],
+            content_type: Some("application/octet-stream".to_owned()),
+            content_disposition: None,
+        };
+
+        let debug = format!("{resource:?}");
+        assert!(debug.contains("bytes_len: 4"));
+        assert!(debug.contains("application/octet-stream"));
+        assert!(!debug.contains("[1, 2, 3, 4]"));
     }
 }

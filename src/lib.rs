@@ -7,6 +7,7 @@
 pub mod card;
 pub mod client;
 pub mod config;
+mod debug;
 pub mod error;
 pub mod event;
 pub mod lark_openapi;

@@ -1,3 +1,4 @@
+use std::fmt;
 use std::time::Duration;
 
 #[cfg(feature = "websocket")]
@@ -110,7 +111,7 @@ impl WebSocketClientConfig {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct WebSocketEndpointRequest<'a> {
     #[serde(rename = "AppID")]
     app_id: &'a str,
@@ -436,7 +437,7 @@ impl WebSocketEventFrame {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct WebSocketEvent {
     message_id: String,
     trace_id: String,
@@ -446,6 +447,22 @@ pub struct WebSocketEvent {
     payload_encoding: Option<String>,
     payload_type: Option<String>,
     log_id_new: Option<String>,
+}
+
+impl fmt::Debug for WebSocketEvent {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("WebSocketEvent")
+            .field("message_id", &self.message_id)
+            .field("trace_id", &self.trace_id)
+            .field("sum", &self.sum)
+            .field("seq", &self.seq)
+            .field("payload_bytes", &self.payload.len())
+            .field("payload_encoding", &self.payload_encoding)
+            .field("payload_type", &self.payload_type)
+            .field("log_id_new", &self.log_id_new)
+            .finish()
+    }
 }
 
 impl WebSocketEvent {
@@ -954,6 +971,15 @@ mod tests {
         assert_eq!(event.payload_type(), Some("application/json"));
         assert_eq!(event.payload_encoding(), None);
         assert_eq!(event.log_id_new(), Some("log-new"));
+    }
+
+    #[test]
+    fn websocket_event_debug_summarizes_payload_bytes() {
+        let event = event_frame().event().expect("event result").expect("event");
+
+        let debug = format!("{event:?}");
+        assert!(debug.contains("payload_bytes: 16"));
+        assert!(!debug.contains(r#"{"schema":"2.0"}"#));
     }
 
     #[test]

@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::lark_openapi::{
     FileCreateRequest, FileType, ImageCreateRequest, OpenApiClient, OpenApiMultipartTransport,
 };
@@ -6,7 +8,7 @@ use crate::{Error, Result};
 use super::ResourceType;
 
 /// In-memory media selected for upload through [`MediaUploader`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum MediaUpload {
     Image {
@@ -26,6 +28,42 @@ pub enum MediaUpload {
         bytes: Vec<u8>,
         duration_ms: u64,
     },
+}
+
+impl fmt::Debug for MediaUpload {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Image { bytes } => formatter
+                .debug_struct("Image")
+                .field("bytes_len", &bytes.len())
+                .finish(),
+            Self::File { file_name, bytes } => formatter
+                .debug_struct("File")
+                .field("file_name", file_name)
+                .field("bytes_len", &bytes.len())
+                .finish(),
+            Self::OpusAudio {
+                file_name,
+                bytes,
+                duration_ms,
+            } => formatter
+                .debug_struct("OpusAudio")
+                .field("file_name", file_name)
+                .field("bytes_len", &bytes.len())
+                .field("duration_ms", duration_ms)
+                .finish(),
+            Self::Mp4Video {
+                file_name,
+                bytes,
+                duration_ms,
+            } => formatter
+                .debug_struct("Mp4Video")
+                .field("file_name", file_name)
+                .field("bytes_len", &bytes.len())
+                .field("duration_ms", duration_ms)
+                .finish(),
+        }
+    }
 }
 
 impl MediaUpload {
@@ -240,6 +278,19 @@ mod tests {
         );
         let client = OpenApiClient::new(ChannelConfig::new("cli_a", "secret"), transport.clone());
         (MediaUploader::new(client), transport)
+    }
+
+    #[test]
+    fn debug_redacts_client_secrets_and_summarizes_upload_bytes() {
+        let (uploader, _) = uploader(json!({"image_key": "img_123"}));
+        let upload = MediaUpload::mp4_video("clip.mp4", vec![1, 2, 3], 1200);
+
+        let debug = format!("{uploader:?} {upload:?}");
+        assert!(debug.contains("<redacted>"));
+        assert!(debug.contains("bytes_len: 3"));
+        assert!(!debug.contains("\"secret\""));
+        assert!(!debug.contains("tenant-token-1"));
+        assert!(!debug.contains("[1, 2, 3]"));
     }
 
     #[test]

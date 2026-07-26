@@ -1,3 +1,5 @@
+use std::fmt;
+
 use serde::Deserialize;
 
 use crate::{Error, Result};
@@ -53,10 +55,20 @@ impl FileType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ImageCreateRequest {
     pub image_type: ImageType,
     pub image: Vec<u8>,
+}
+
+impl fmt::Debug for ImageCreateRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ImageCreateRequest")
+            .field("image_type", &self.image_type)
+            .field("image_bytes", &self.image.len())
+            .finish()
+    }
 }
 
 impl ImageCreateRequest {
@@ -75,7 +87,7 @@ impl ImageCreateRequest {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct FileCreateRequest {
     pub file_type: FileType,
     pub file_name: String,
@@ -83,6 +95,17 @@ pub struct FileCreateRequest {
     pub file: Vec<u8>,
 }
 
+impl fmt::Debug for FileCreateRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("FileCreateRequest")
+            .field("file_type", &self.file_type)
+            .field("file_name", &self.file_name)
+            .field("duration_ms", &self.duration_ms)
+            .field("file_bytes", &self.file.len())
+            .finish()
+    }
+}
 impl FileCreateRequest {
     pub fn new(
         file_type: FileType,
@@ -256,6 +279,18 @@ mod tests {
                 "expire": 7200
             }),
         )
+    }
+
+    #[test]
+    fn debug_summarizes_upload_request_bytes() {
+        let image = ImageCreateRequest::message(vec![1, 2, 3]);
+        let file = FileCreateRequest::new(FileType::Mp4, "clip.mp4", vec![4, 5]).duration_ms(1200);
+
+        let debug = format!("{image:?} {file:?}");
+        assert!(debug.contains("image_bytes: 3"));
+        assert!(debug.contains("file_bytes: 2"));
+        assert!(!debug.contains("[1, 2, 3]"));
+        assert!(!debug.contains("[4, 5]"));
     }
 
     #[test]
