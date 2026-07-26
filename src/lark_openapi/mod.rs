@@ -19,6 +19,7 @@ pub(crate) mod test_support;
 mod transport;
 mod ws;
 
+use std::fmt;
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -52,12 +53,22 @@ pub use ws::{
 use auth::AccessTokenCache;
 use response::parse_openapi_response;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OpenApiClient<T> {
     config: ChannelConfig,
     transport: T,
     app_access_token_cache: Arc<AccessTokenCache>,
     tenant_access_token_cache: Arc<AccessTokenCache>,
+}
+
+impl<T> fmt::Debug for OpenApiClient<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenApiClient")
+            .field("config", &self.config)
+            .field("transport_type", &std::any::type_name::<T>())
+            .finish_non_exhaustive()
+    }
 }
 
 impl<T> OpenApiClient<T>

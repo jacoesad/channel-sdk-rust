@@ -30,3 +30,21 @@ where
 
     serde_json::from_value(response.body).map_err(Error::from)
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn response_decode_errors_do_not_render_raw_values() {
+        let error =
+            parse_openapi_response::<bool>(HttpResponse::json(200, json!("response-secret")))
+                .expect_err("invalid response type should fail");
+        let rendered = format!("{error:?} {error}");
+
+        assert!(matches!(error, Error::Serde(_)));
+        assert!(!rendered.contains("response-secret"));
+    }
+}

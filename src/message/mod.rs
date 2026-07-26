@@ -1,7 +1,10 @@
+use std::fmt;
+
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use crate::card::CardId;
+use crate::debug::{JsonSummary, OptionalJsonSummary, Redacted};
 use crate::media::ResourceDescriptor;
 
 mod media;
@@ -35,7 +38,7 @@ pub enum Recipient {
 /// This enum is non-exhaustive because future releases may add content types.
 /// Its serde representation may add matching variants as well, so older readers
 /// are not guaranteed to deserialize data written by newer releases.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum MessageContent {
@@ -69,6 +72,48 @@ pub enum MessageContent {
         msg_type: String,
         content: Value,
     },
+}
+
+impl fmt::Debug for MessageContent {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Text { text } => formatter
+                .debug_struct("Text")
+                .field("chars", &text.chars().count())
+                .finish(),
+            Self::Post { .. } => formatter.debug_struct("Post").finish_non_exhaustive(),
+            Self::Image { .. } => formatter
+                .debug_struct("Image")
+                .field("image_key", &Redacted)
+                .finish(),
+            Self::File { .. } => formatter
+                .debug_struct("File")
+                .field("file_key", &Redacted)
+                .finish(),
+            Self::Audio { .. } => formatter
+                .debug_struct("Audio")
+                .field("file_key", &Redacted)
+                .finish(),
+            Self::Media { image_key, .. } => formatter
+                .debug_struct("Media")
+                .field("file_key", &Redacted)
+                .field("has_image_key", &image_key.is_some())
+                .finish(),
+            Self::Card { card } => formatter
+                .debug_struct("Card")
+                .field("card", &JsonSummary(card))
+                .finish(),
+            Self::CardReference { card_id } => formatter
+                .debug_struct("CardReference")
+                .field("card_id", card_id)
+                .finish(),
+            Self::Custom { msg_type, content } => formatter
+                .debug_struct("Custom")
+                .field("msg_type", msg_type)
+                .field("content", &JsonSummary(content))
+                .finish(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,7 +162,7 @@ pub struct MessageMention {
     pub mentioned_type: MessageSenderType,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct NormalizedMessage {
     pub message_id: String,
     pub chat_id: String,
@@ -146,6 +191,29 @@ pub struct NormalizedMessage {
     pub resources: Vec<ResourceDescriptor>,
     #[serde(default)]
     pub raw: Value,
+}
+
+impl fmt::Debug for NormalizedMessage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("NormalizedMessage")
+            .field("message_id", &self.message_id)
+            .field("chat_id", &self.chat_id)
+            .field("chat_type", &self.chat_type)
+            .field("sender_id", &self.sender_id)
+            .field("sender", &self.sender)
+            .field("message_type", &self.message_type)
+            .field("text", &self.text)
+            .field("raw_content_chars", &self.raw_content.chars().count())
+            .field("content", &OptionalJsonSummary(&self.content))
+            .field("root_id", &self.root_id)
+            .field("parent_id", &self.parent_id)
+            .field("thread_id", &self.thread_id)
+            .field("mentions", &self.mentions)
+            .field("resources", &self.resources)
+            .field("raw", &JsonSummary(&self.raw))
+            .finish()
+    }
 }
 
 impl NormalizedMessage {
@@ -194,6 +262,23 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn message_content_debug_summarizes_payloads() {
+        let text = MessageContent::Text {
+            text: "message-secret".to_owned(),
+        };
+        let custom = MessageContent::Custom {
+            msg_type: "custom".to_owned(),
+            content: json!({"token": "custom-secret"}),
+        };
+
+        let debug = format!("{text:?} {custom:?}");
+        assert!(debug.contains("chars: 14"));
+        assert!(debug.contains("Object"));
+        assert!(!debug.contains("message-secret"));
+        assert!(!debug.contains("custom-secret"));
+    }
 
     #[test]
     fn deserializes_older_normalized_message_json_with_defaults() {

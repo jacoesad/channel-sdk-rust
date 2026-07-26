@@ -174,7 +174,6 @@ impl TryFrom<Recipient> for CreateMessageRecipient {
     }
 }
 
-#[derive(Debug)]
 struct OpenApiMessageContent {
     msg_type: String,
     content: Value,
@@ -256,7 +255,7 @@ fn validate_resource_key(key: String, field: &str) -> Result<String> {
     Ok(key)
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct CreateMessageRequest {
     receive_id: String,
     msg_type: String,
@@ -265,7 +264,7 @@ struct CreateMessageRequest {
     uuid: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct ReplyMessageRequest {
     msg_type: String,
     content: String,

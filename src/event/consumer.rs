@@ -311,6 +311,9 @@ mod tests {
         assert_eq!(received.sum, 1);
         assert_eq!(received.seq, 1);
         assert!(matches!(received.event, ChannelEvent::Message(_)));
+        let debug = format!("{received:?}");
+        assert!(debug.contains("text: \"hello\""));
+        assert!(!debug.contains("raw-secret"));
         assert!(consumer.connection().acks.is_empty());
     }
 
@@ -504,7 +507,8 @@ mod tests {
                     "chat_type": "p2p",
                     "message_type": "text",
                     "content": "{\"text\":\"hello\"}"
-                }
+                },
+                "debug_secret": "raw-secret"
             }
         })
         .to_string()

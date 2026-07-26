@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -8,6 +9,7 @@ use url::Url;
 #[cfg(feature = "reqwest-transport")]
 use crate::Error;
 use crate::Result;
+use crate::debug::{Redacted, RedactedHeaders, RedactedUrl};
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -20,12 +22,24 @@ pub enum HttpMethod {
     Delete,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct HttpRequest {
     pub method: HttpMethod,
     pub url: Url,
     pub headers: BTreeMap<String, String>,
     pub body: Value,
+}
+
+impl fmt::Debug for HttpRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("HttpRequest")
+            .field("method", &self.method)
+            .field("url", &RedactedUrl(&self.url))
+            .field("headers", &RedactedHeaders(&self.headers))
+            .field("body", &Redacted)
+            .finish()
+    }
 }
 
 impl HttpRequest {
@@ -64,10 +78,20 @@ impl HttpRequest {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct HttpResponse {
     pub status: u16,
     pub body: Value,
+}
+
+impl fmt::Debug for HttpResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("HttpResponse")
+            .field("status", &self.status)
+            .field("body", &Redacted)
+            .finish()
+    }
 }
 
 impl HttpResponse {
@@ -76,11 +100,22 @@ impl HttpResponse {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct BinaryHttpResponse {
     pub status: u16,
     pub headers: BTreeMap<String, String>,
     pub body: Vec<u8>,
+}
+
+impl fmt::Debug for BinaryHttpResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("BinaryHttpResponse")
+            .field("status", &self.status)
+            .field("headers", &RedactedHeaders(&self.headers))
+            .field("body_bytes", &self.body.len())
+            .finish()
+    }
 }
 
 impl BinaryHttpResponse {
@@ -100,12 +135,24 @@ impl BinaryHttpResponse {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct MultipartRequest {
     pub method: HttpMethod,
     pub url: Url,
     pub headers: BTreeMap<String, String>,
     pub parts: Vec<MultipartPart>,
+}
+
+impl fmt::Debug for MultipartRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MultipartRequest")
+            .field("method", &self.method)
+            .field("url", &RedactedUrl(&self.url))
+            .field("headers", &RedactedHeaders(&self.headers))
+            .field("parts", &self.parts)
+            .finish()
+    }
 }
 
 impl MultipartRequest {
@@ -149,7 +196,7 @@ impl MultipartRequest {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum MultipartPart {
     Text {
         name: String,
@@ -162,6 +209,27 @@ pub enum MultipartPart {
     },
 }
 
+impl fmt::Debug for MultipartPart {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Text { name, .. } => formatter
+                .debug_struct("Text")
+                .field("name", name)
+                .field("value", &Redacted)
+                .finish(),
+            Self::File {
+                name,
+                file_name,
+                bytes,
+            } => formatter
+                .debug_struct("File")
+                .field("name", name)
+                .field("file_name", file_name)
+                .field("bytes_len", &bytes.len())
+                .finish(),
+        }
+    }
+}
 pub trait OpenApiTransport: Clone + Send + Sync + 'static {
     fn send_json(&self, request: HttpRequest) -> BoxFuture<'static, Result<HttpResponse>>;
 }
@@ -192,10 +260,19 @@ pub trait OpenApiMultipartTransport: OpenApiTransport {
 }
 
 #[cfg(feature = "reqwest-transport")]
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ReqwestOpenApiTransport {
     client: reqwest::Client,
     binary_client: std::result::Result<reqwest::Client, String>,
+}
+
+#[cfg(feature = "reqwest-transport")]
+impl fmt::Debug for ReqwestOpenApiTransport {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ReqwestOpenApiTransport")
+            .finish_non_exhaustive()
+    }
 }
 
 #[cfg(feature = "reqwest-transport")]
@@ -257,7 +334,7 @@ impl OpenApiTransport for ReqwestOpenApiTransport {
             let response = reqwest_request(&client, request)
                 .send()
                 .await
-                .map_err(|error| Error::Transport(error.to_string()))?;
+                .map_err(reqwest_transport_error)?;
             let status = response.status().as_u16();
             if let Some(response) = response_for_error_status(status) {
                 return Ok(response);
@@ -265,7 +342,7 @@ impl OpenApiTransport for ReqwestOpenApiTransport {
             let body = response
                 .json::<Value>()
                 .await
-                .map_err(|error| Error::Transport(error.to_string()))?;
+                .map_err(reqwest_transport_error)?;
 
             Ok(HttpResponse { status, body })
         })
@@ -286,7 +363,7 @@ impl OpenApiBinaryTransport for ReqwestOpenApiTransport {
             let mut response = reqwest_request(&client, request)
                 .send()
                 .await
-                .map_err(|error| Error::Transport(error.to_string()))?;
+                .map_err(reqwest_transport_error)?;
             let status = response.status().as_u16();
             if let Some(response) = binary_response_for_error_status(status) {
                 return Ok(response);
@@ -310,11 +387,7 @@ impl OpenApiBinaryTransport for ReqwestOpenApiTransport {
             }
 
             let mut body = Vec::new();
-            while let Some(chunk) = response
-                .chunk()
-                .await
-                .map_err(|error| Error::Transport(error.to_string()))?
-            {
+            while let Some(chunk) = response.chunk().await.map_err(reqwest_transport_error)? {
                 let next_length = body
                     .len()
                     .checked_add(chunk.len())
@@ -373,7 +446,7 @@ impl OpenApiMultipartTransport for ReqwestOpenApiTransport {
                 .multipart(form)
                 .send()
                 .await
-                .map_err(|error| Error::Transport(error.to_string()))?;
+                .map_err(reqwest_transport_error)?;
             let status = response.status().as_u16();
             if let Some(response) = response_for_error_status(status) {
                 return Ok(response);
@@ -381,7 +454,7 @@ impl OpenApiMultipartTransport for ReqwestOpenApiTransport {
             let body = response
                 .json::<Value>()
                 .await
-                .map_err(|error| Error::Transport(error.to_string()))?;
+                .map_err(reqwest_transport_error)?;
 
             Ok(HttpResponse { status, body })
         })
@@ -412,6 +485,11 @@ fn binary_response_too_large(max_response_bytes: usize) -> Error {
     Error::Transport(format!(
         "binary response exceeds the {max_response_bytes}-byte limit"
     ))
+}
+
+#[cfg(feature = "reqwest-transport")]
+fn reqwest_transport_error(error: reqwest::Error) -> Error {
+    Error::Transport(error.without_url().to_string())
 }
 
 #[cfg(feature = "reqwest-transport")]
@@ -459,6 +537,66 @@ fn binary_response_for_error_status(status: u16) -> Option<BinaryHttpResponse> {
     ))
 }
 
+#[cfg(test)]
+mod debug_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn debug_redacts_http_and_binary_payloads() {
+        let request = HttpRequest::post_json(
+            Url::parse(
+                "https://user:url-secret@open.feishu.cn/token?access_token=query-secret#fragment-secret",
+            )
+            .expect("test URL"),
+            json!({"app_secret": "request-secret"}),
+        )
+        .with_bearer_auth("bearer-secret");
+        let mut request = request;
+        request
+            .headers
+            .insert("x-auth-token".to_owned(), "alias-secret".to_owned());
+        let response = HttpResponse::json(200, json!({"access_token": "response-secret"}));
+        let binary = BinaryHttpResponse::new(
+            200,
+            BTreeMap::from([("set-cookie".to_owned(), "cookie-secret".to_owned())]),
+            vec![1, 2, 3, 4],
+        );
+
+        let debug = format!("{request:?} {response:?} {binary:?}");
+        assert!(debug.contains("<redacted>"));
+        assert!(debug.contains("body_bytes: 4"));
+        assert!(!debug.contains("request-secret"));
+        assert!(!debug.contains("bearer-secret"));
+        assert!(!debug.contains("response-secret"));
+        assert!(!debug.contains("cookie-secret"));
+        assert!(!debug.contains("url-secret"));
+        assert!(!debug.contains("query-secret"));
+        assert!(!debug.contains("fragment-secret"));
+        assert!(!debug.contains("alias-secret"));
+        assert!(!debug.contains("[1, 2, 3, 4]"));
+    }
+
+    #[test]
+    fn debug_redacts_multipart_values_and_summarizes_files() {
+        let request = MultipartRequest::new(
+            HttpMethod::Post,
+            Url::parse("https://open.feishu.cn/upload").expect("test URL"),
+        )
+        .with_bearer_auth("bearer-secret")
+        .text("metadata", "text-secret")
+        .file("file", "report.bin", vec![1, 2, 3, 4]);
+
+        let debug = format!("{request:?}");
+        assert!(debug.contains("<redacted>"));
+        assert!(debug.contains("bytes_len: 4"));
+        assert!(!debug.contains("bearer-secret"));
+        assert!(!debug.contains("text-secret"));
+        assert!(!debug.contains("[1, 2, 3, 4]"));
+    }
+}
+
 #[cfg(all(test, feature = "reqwest-transport"))]
 mod tests {
     use std::io::{Read, Write};
@@ -466,10 +604,42 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use std::time::Duration;
 
     use serde_json::json;
 
     use super::*;
+
+    #[tokio::test]
+    async fn reqwest_errors_strip_request_urls() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind test socket");
+        let address = listener.local_addr().expect("test address");
+        drop(listener);
+
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(1))
+            .build()
+            .expect("test client");
+        let request = HttpRequest::empty(
+            HttpMethod::Get,
+            Url::parse(&format!(
+                "http://user:url-secret@{address}/resource?token=query-secret#fragment-secret"
+            ))
+            .expect("test URL"),
+        );
+
+        let error = ReqwestOpenApiTransport::with_client(client)
+            .send_json(request)
+            .await
+            .expect_err("closed test socket should reject the connection");
+        let rendered = format!("{error:?} {error}");
+
+        assert!(rendered.contains("transport error"));
+        assert!(!rendered.contains("url-secret"));
+        assert!(!rendered.contains("query-secret"));
+        assert!(!rendered.contains("fragment-secret"));
+    }
     use crate::Error;
     use crate::lark_openapi::response::parse_openapi_response;
 

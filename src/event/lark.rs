@@ -60,7 +60,7 @@ impl LarkEventHeader {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct LarkEventHeader {
     event_id: String,
     event_type: String,
@@ -70,7 +70,7 @@ struct LarkEventHeader {
     tenant_key: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct LarkMessageReceiveEvent {
     sender: LarkEventSender,
     message: LarkEventMessage,
@@ -129,13 +129,13 @@ impl LarkMessageReceiveEvent {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct LarkEventSender {
     sender_id: LarkUserId,
     sender_type: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct LarkEventMessage {
     message_id: String,
     chat_id: String,
@@ -155,7 +155,7 @@ struct LarkEventMessage {
     mentions: Vec<LarkEventMention>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct LarkEventMention {
     #[serde(default)]
     key: String,
@@ -188,7 +188,7 @@ impl LarkEventMention {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Default, Deserialize)]
 struct LarkUserId {
     #[serde(default)]
     open_id: String,
@@ -198,7 +198,7 @@ struct LarkUserId {
     union_id: Option<String>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct LarkMentionId {
     open_id: String,
     user_id: Option<String>,
@@ -254,7 +254,7 @@ where
     })
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct LarkCardActionEvent {
     #[serde(default)]
     operator: LarkCardActionOperator,
@@ -284,7 +284,7 @@ impl LarkCardActionEvent {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Default, Deserialize)]
 struct LarkCardActionOperator {
     #[serde(default)]
     tenant_key: Option<String>,
@@ -307,7 +307,7 @@ impl From<LarkCardActionOperator> for CardActionOperator {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct LarkCardActionPayload {
     #[serde(default)]
     value: Value,
@@ -347,7 +347,7 @@ impl CardActionPayload {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct LarkCardActionContext {
     #[serde(default)]
     url: Option<String>,
@@ -784,6 +784,11 @@ mod tests {
         });
 
         let event = parse_lark_event_payload(payload.to_string().as_bytes()).expect("event");
+        let debug = format!("{event:?}");
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("card_update_token"));
+        assert!(!debug.contains("preview_1"));
+        assert!(!debug.contains("ticket_1"));
         let ChannelEvent::CardAction(card_action) = event else {
             panic!("expected card action event");
         };
@@ -864,6 +869,30 @@ mod tests {
         );
         assert_eq!(card_action.action.tag.as_deref(), Some("select_static"));
         assert_eq!(card_action.action.raw["value"], "plain-value");
+    }
+
+    #[test]
+    fn card_action_parse_errors_do_not_render_raw_values() {
+        let payload = json!({
+            "schema": "2.0",
+            "header": {
+                "event_id": "event_card_secret",
+                "event_type": "card.action.trigger"
+            },
+            "event": {
+                "action": {
+                    "value": {},
+                    "checked": "body-secret"
+                }
+            }
+        });
+
+        let error = parse_lark_event_payload(payload.to_string().as_bytes())
+            .expect_err("invalid checked value should fail");
+        let rendered = format!("{error:?} {error}");
+
+        assert!(matches!(error, Error::Serde(_)));
+        assert!(!rendered.contains("body-secret"));
     }
 
     #[test]

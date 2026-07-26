@@ -1,3 +1,4 @@
+use std::fmt;
 use std::future::Future;
 use std::time::Duration;
 
@@ -41,11 +42,22 @@ impl WebSocketEndpointConnector for TokioTungsteniteWebSocketTransport {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OpenApiWebSocketEventConnector<T, W> {
     openapi: OpenApiClient<T>,
     websocket: W,
     last_client_config: Option<WebSocketClientConfig>,
+}
+
+impl<T, W> fmt::Debug for OpenApiWebSocketEventConnector<T, W> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenApiWebSocketEventConnector")
+            .field("openapi", &self.openapi)
+            .field("websocket_type", &std::any::type_name::<W>())
+            .field("last_client_config", &self.last_client_config)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<T, W> OpenApiWebSocketEventConnector<T, W> {
@@ -412,11 +424,28 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::ChannelConfig;
     use crate::event::ChannelEvent;
+    use crate::lark_openapi::test_support::FakeTransport;
     use crate::lark_openapi::{
         WebSocketClientConfig, WebSocketEvent, WebSocketEventFrame, WebSocketFrame,
         WebSocketFrameMethod, WebSocketHeader,
     };
+
+    #[test]
+    fn openapi_websocket_connector_debug_does_not_format_connector_state() {
+        let openapi = OpenApiClient::new(
+            ChannelConfig::new("cli_test", "app-secret"),
+            FakeTransport::new(Vec::new()),
+        );
+        let connector = OpenApiWebSocketEventConnector::new(openapi, "websocket-secret".to_owned());
+
+        let debug = format!("{connector:?}");
+
+        assert!(debug.contains("websocket_type"));
+        assert!(!debug.contains("app-secret"));
+        assert!(!debug.contains("websocket-secret"));
+    }
 
     #[derive(Default)]
     struct FakeConnector {

@@ -1,5 +1,7 @@
 //! CardKit 2.0 card primitives and builders.
 
+use std::fmt;
+
 mod builder;
 mod streaming;
 mod validation;
@@ -8,6 +10,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use serde_json::{Map, Value, json};
 
 use crate::Result;
+use crate::debug::JsonSummary;
 
 pub use builder::{CardBuilder, CardButtonStyle, CardElement};
 pub(crate) use streaming::validate_card_element_content;
@@ -28,8 +31,17 @@ const CARD_SCHEMA: &str = "2.0";
 /// covers the shared-card, root/body, serialized-size, component-count, and
 /// identifier invariants needed by this SDK; Lark/Feishu remains authoritative
 /// for component-specific fields passed through raw JSON.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Card(Value);
+
+impl fmt::Debug for Card {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_tuple("Card")
+            .field(&JsonSummary(&self.0))
+            .finish()
+    }
+}
 
 impl Card {
     /// Starts a CardKit 2.0 builder.
@@ -126,5 +138,27 @@ impl<'de> Deserialize<'de> for CardId {
         D: Deserializer<'de>,
     {
         Self::new(String::deserialize(deserializer)?).map_err(D::Error::custom)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn card_debug_summarizes_raw_json() {
+        let element = CardElement::markdown("element-secret");
+        let builder = Card::builder().markdown("builder-secret");
+        let card = builder
+            .clone()
+            .markdown("card-secret")
+            .build()
+            .expect("card");
+
+        let debug = format!("{element:?} {builder:?} {card:?}");
+        assert!(debug.contains("Object"));
+        assert!(!debug.contains("element-secret"));
+        assert!(!debug.contains("builder-secret"));
+        assert!(!debug.contains("card-secret"));
     }
 }
