@@ -1,5 +1,6 @@
 use std::fmt;
 
+use crate::debug::Redacted;
 use crate::lark_openapi::{
     FileCreateRequest, FileType, ImageCreateRequest, OpenApiClient, OpenApiMultipartTransport,
 };
@@ -39,7 +40,7 @@ impl fmt::Debug for MediaUpload {
                 .finish(),
             Self::File { file_name, bytes } => formatter
                 .debug_struct("File")
-                .field("file_name", file_name)
+                .field("file_name_chars", &file_name.chars().count())
                 .field("bytes_len", &bytes.len())
                 .finish(),
             Self::OpusAudio {
@@ -48,7 +49,7 @@ impl fmt::Debug for MediaUpload {
                 duration_ms,
             } => formatter
                 .debug_struct("OpusAudio")
-                .field("file_name", file_name)
+                .field("file_name_chars", &file_name.chars().count())
                 .field("bytes_len", &bytes.len())
                 .field("duration_ms", duration_ms)
                 .finish(),
@@ -58,7 +59,7 @@ impl fmt::Debug for MediaUpload {
                 duration_ms,
             } => formatter
                 .debug_struct("Mp4Video")
-                .field("file_name", file_name)
+                .field("file_name_chars", &file_name.chars().count())
                 .field("bytes_len", &bytes.len())
                 .field("duration_ms", duration_ms)
                 .finish(),
@@ -108,7 +109,7 @@ impl MediaUpload {
 }
 
 /// Resource key and metadata returned after a successful upload.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum UploadedResource {
     Image {
@@ -120,6 +121,29 @@ pub enum UploadedResource {
         file_name: String,
         duration_ms: Option<u64>,
     },
+}
+
+impl fmt::Debug for UploadedResource {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Image { .. } => formatter
+                .debug_struct("Image")
+                .field("image_key", &Redacted)
+                .finish(),
+            Self::File {
+                resource_type,
+                file_name,
+                duration_ms,
+                ..
+            } => formatter
+                .debug_struct("File")
+                .field("resource_type", resource_type)
+                .field("file_key", &Redacted)
+                .field("file_name_chars", &file_name.chars().count())
+                .field("duration_ms", duration_ms)
+                .finish(),
+        }
+    }
 }
 
 impl UploadedResource {
@@ -283,14 +307,23 @@ mod tests {
     #[test]
     fn debug_redacts_client_secrets_and_summarizes_upload_bytes() {
         let (uploader, _) = uploader(json!({"image_key": "img_123"}));
-        let upload = MediaUpload::mp4_video("clip.mp4", vec![1, 2, 3], 1200);
+        let upload = MediaUpload::mp4_video("private-clip.mp4", vec![1, 2, 3], 1200);
+        let uploaded = UploadedResource::File {
+            resource_type: ResourceType::Media,
+            file_key: "file-secret".to_owned(),
+            file_name: "private-clip.mp4".to_owned(),
+            duration_ms: Some(1200),
+        };
 
-        let debug = format!("{uploader:?} {upload:?}");
+        let debug = format!("{uploader:?} {upload:?} {uploaded:?}");
         assert!(debug.contains("<redacted>"));
         assert!(debug.contains("bytes_len: 3"));
+        assert!(debug.contains("file_name_chars: 16"));
         assert!(!debug.contains("\"secret\""));
         assert!(!debug.contains("tenant-token-1"));
         assert!(!debug.contains("[1, 2, 3]"));
+        assert!(!debug.contains("file-secret"));
+        assert!(!debug.contains("private-clip.mp4"));
     }
 
     #[test]

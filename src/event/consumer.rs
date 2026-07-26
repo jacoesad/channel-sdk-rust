@@ -312,7 +312,8 @@ mod tests {
         assert_eq!(received.seq, 1);
         assert!(matches!(received.event, ChannelEvent::Message(_)));
         let debug = format!("{received:?}");
-        assert!(debug.contains("text: \"hello\""));
+        assert!(debug.contains("text_chars: 5"));
+        assert!(!debug.contains("hello"));
         assert!(!debug.contains("raw-secret"));
         assert!(consumer.connection().acks.is_empty());
     }

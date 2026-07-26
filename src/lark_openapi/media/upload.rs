@@ -2,6 +2,7 @@ use std::fmt;
 
 use serde::Deserialize;
 
+use crate::debug::Redacted;
 use crate::{Error, Result};
 
 use super::super::{
@@ -100,7 +101,7 @@ impl fmt::Debug for FileCreateRequest {
         formatter
             .debug_struct("FileCreateRequest")
             .field("file_type", &self.file_type)
-            .field("file_name", &self.file_name)
+            .field("file_name_chars", &self.file_name.chars().count())
             .field("duration_ms", &self.duration_ms)
             .field("file_bytes", &self.file.len())
             .finish()
@@ -126,8 +127,14 @@ impl FileCreateRequest {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ImageKey(pub String);
+
+impl fmt::Debug for ImageKey {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_tuple("ImageKey").field(&Redacted).finish()
+    }
+}
 
 impl ImageKey {
     pub fn as_str(&self) -> &str {
@@ -135,8 +142,14 @@ impl ImageKey {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct FileKey(pub String);
+
+impl fmt::Debug for FileKey {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_tuple("FileKey").field(&Redacted).finish()
+    }
+}
 
 impl FileKey {
     pub fn as_str(&self) -> &str {
@@ -284,13 +297,21 @@ mod tests {
     #[test]
     fn debug_summarizes_upload_request_bytes() {
         let image = ImageCreateRequest::message(vec![1, 2, 3]);
-        let file = FileCreateRequest::new(FileType::Mp4, "clip.mp4", vec![4, 5]).duration_ms(1200);
+        let file =
+            FileCreateRequest::new(FileType::Mp4, "private-clip.mp4", vec![4, 5]).duration_ms(1200);
+        let image_key = ImageKey("image-secret".to_owned());
+        let file_key = FileKey("file-secret".to_owned());
 
-        let debug = format!("{image:?} {file:?}");
+        let debug = format!("{image:?} {file:?} {image_key:?} {file_key:?}");
         assert!(debug.contains("image_bytes: 3"));
         assert!(debug.contains("file_bytes: 2"));
+        assert!(debug.contains("file_name_chars: 16"));
+        assert!(debug.contains("<redacted>"));
         assert!(!debug.contains("[1, 2, 3]"));
         assert!(!debug.contains("[4, 5]"));
+        assert!(!debug.contains("private-clip.mp4"));
+        assert!(!debug.contains("image-secret"));
+        assert!(!debug.contains("file-secret"));
     }
 
     #[test]

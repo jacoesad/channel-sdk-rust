@@ -2,6 +2,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::debug::RedactedOption;
+
 mod downloader;
 mod uploader;
 
@@ -21,7 +23,7 @@ pub enum ResourceType {
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceDescriptor {
     pub message_id: String,
     #[serde(default)]
@@ -34,6 +36,26 @@ pub struct ResourceDescriptor {
     pub file_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
+}
+
+impl fmt::Debug for ResourceDescriptor {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ResourceDescriptor")
+            .field("message_id", &self.message_id)
+            .field("resource_type", &self.resource_type)
+            .field("file_key", &RedactedOption(&self.file_key))
+            .field("image_key", &RedactedOption(&self.image_key))
+            .field(
+                "file_name_chars",
+                &self
+                    .file_name
+                    .as_ref()
+                    .map(|file_name| file_name.chars().count()),
+            )
+            .field("duration_ms", &self.duration_ms)
+            .finish()
+    }
 }
 
 /// In-memory resource downloaded from a Lark/Feishu message.
@@ -50,7 +72,10 @@ impl fmt::Debug for DownloadedResource {
             .debug_struct("DownloadedResource")
             .field("bytes_len", &self.bytes.len())
             .field("content_type", &self.content_type)
-            .field("content_disposition", &self.content_disposition)
+            .field(
+                "has_content_disposition",
+                &self.content_disposition.is_some(),
+            )
             .finish()
     }
 }
@@ -74,12 +99,34 @@ mod tests {
         let resource = DownloadedResource {
             bytes: vec![1, 2, 3, 4],
             content_type: Some("application/octet-stream".to_owned()),
-            content_disposition: None,
+            content_disposition: Some("attachment; filename=private-report.pdf".to_owned()),
         };
 
         let debug = format!("{resource:?}");
         assert!(debug.contains("bytes_len: 4"));
         assert!(debug.contains("application/octet-stream"));
+        assert!(debug.contains("has_content_disposition: true"));
         assert!(!debug.contains("[1, 2, 3, 4]"));
+        assert!(!debug.contains("private-report.pdf"));
+    }
+
+    #[test]
+    fn debug_redacts_resource_keys_and_summarizes_file_names() {
+        let descriptor = ResourceDescriptor {
+            message_id: "om_123".to_owned(),
+            resource_type: ResourceType::Media,
+            file_key: Some("file-secret".to_owned()),
+            image_key: Some("image-secret".to_owned()),
+            file_name: Some("private-video.mp4".to_owned()),
+            duration_ms: Some(1200),
+        };
+
+        let debug = format!("{descriptor:?}");
+        assert!(debug.contains("message_id: \"om_123\""));
+        assert!(debug.contains("file_name_chars: Some(17)"));
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("file-secret"));
+        assert!(!debug.contains("image-secret"));
+        assert!(!debug.contains("private-video.mp4"));
     }
 }
